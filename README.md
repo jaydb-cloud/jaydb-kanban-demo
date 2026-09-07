@@ -201,12 +201,29 @@ websocket endpoint — so `store.js` polls every 2.5s and backs off on failure.
 Changes appear within a poll, not instantly. If you want them faster, poll faster
 and accept the request cost; the ETag diffing keeps a quiet board cheap.
 
-**Two ETag encodings.** The `ETag` response header is `"abc"`, but the `etag`
-field in list and PUT *bodies* carries the quotes inside the JSON string
-(`"\"abc\""`). `jaydb.js` normalises both to a bare value on the way in and
-re-quotes on the way out, which is why the comparison in the sync loop works.
-Worth knowing before you write your own client — comparing a listed ETag against
-a header one without normalising silently never matches.
+**The ETag header is invisible to browsers by default.** `ETag` is not a
+CORS-safelisted response header, so `response.headers.get('ETag')` returns `null`
+cross-origin unless the server sends `Access-Control-Expose-Headers: ETag`. Since
+a client that cannot read an ETag cannot send `If-Match`, that alone disables
+optimistic concurrency from a browser — the exact case this example exists to
+demonstrate. Fixed server-side in
+[jaydb-cloud#55](https://github.com/avivklas/jaydb-cloud/pull/55).
+
+Until that is deployed, `jaydb.js` recovers the ETag from a listing, where it
+travels in the JSON body instead, and the sync loop hands over the ETag it
+already listed so the recovery costs no extra request. The fallback logs one
+warning and disappears on its own once the header is exposed. Worth knowing
+because it is a trap you cannot see from outside a browser: `curl` and Node's
+`fetch` ignore CORS, so the header looks perfectly readable in any non-browser
+test.
+
+**Two ETag encodings.** The `ETag` response header is `"abc"`, and the `etag`
+field in list and PUT *bodies* has historically carried the quotes inside the
+JSON string (`"\"abc\""`);
+[jaydb-cloud#56](https://github.com/avivklas/jaydb-cloud/pull/56) makes the body
+form bare. `jaydb.js` normalises both to a bare value on the way in and re-quotes
+on the way out, so it works either side of that change. Comparing a listed ETag
+against a header one without normalising silently never matches.
 
 **Other limits.** Documents cap at 10 MB. A list page caps at 1000 keys (the
 example pages through with the cursor). The data API must be called on a tenant
