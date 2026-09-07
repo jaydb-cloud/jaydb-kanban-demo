@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JayDB Kanban — a shared board with no backend</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- Setup. Credentials are entered here at runtime and kept in this
+         browser; nothing is baked into the files served to anyone else. -->
+    <section id="connect" class="connect" hidden>
+      <form id="connect-form" class="connect__card" autocomplete="off">
+        <h1 class="connect__title">Shared kanban</h1>
+        <p class="connect__lede">
+          A static page — no server, no build step. Every card is a document read and written
+          straight from the browser.
+        </p>
+
+        <label class="field">
+          <span class="field__label">Tenant URL</span>
+          <input
+            id="input-base-url"
+            class="field__input"
+            type="url"
+            placeholder="https://acme.jaydb.com"
+            required
+          />
+          <span class="field__hint">Your tenant subdomain. The data API refuses the apex domain.</span>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Namespace</span>
+          <input id="input-namespace" class="field__input" type="text" value="default" required />
+        </label>
+
+        <label class="field">
+          <span class="field__label">API key</span>
+          <input
+            id="input-api-key"
+            class="field__input field__input--mono"
+            type="password"
+            placeholder="jcloud_sec_…"
+            required
+          />
+          <span class="field__hint field__hint--warn">
+            Read-write, and readable by anything running on this page. Scope it to one namespace and
+            treat it as shared with everyone you hand this URL to — see the README.
+          </span>
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span class="field__label">Board</span>
+            <input id="input-board" class="field__input" type="text" value="demo" required />
+          </label>
+          <label class="field">
+            <span class="field__label">Your name</span>
+            <input id="input-name" class="field__input" type="text" placeholder="Ada" required />
+          </label>
+        </div>
+
+        <p id="connect-error" class="connect__error" hidden></p>
+
+        <button class="button button--primary button--wide" type="submit">Open board</button>
+        <p class="connect__footnote">
+          Open this page in a second window to watch two clients converge.
+        </p>
+      </form>
+    </section>
+
+    <!-- The board. -->
+    <main id="board" class="board" hidden>
+      <header class="topbar">
+        <div class="topbar__identity">
+          <h1 id="board-name" class="topbar__title">board</h1>
+          <span id="board-key" class="topbar__key"></span>
+        </div>
+
+        <div class="topbar__right">
+          <div id="presence" class="presence" title="Clients that wrote a heartbeat recently"></div>
+          <span id="sync-pill" class="pill pill--idle">idle</span>
+          <button id="toggle-inspector" class="button button--ghost" type="button">Inspector</button>
+          <button id="disconnect" class="button button--ghost" type="button">Leave</button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner" hidden></div>
+
+      <div class="workspace">
+        <div id="columns" class="columns"></div>
+
+        <!-- Live view of what the app is actually doing over HTTP. -->
+        <aside id="inspector" class="inspector" hidden>
+          <section class="inspector__section">
+            <h2 class="inspector__heading">Requests</h2>
+            <dl class="stats">
+              <div class="stats__row"><dt>Reads</dt><dd id="stat-reads">0</dd></div>
+              <div class="stats__row"><dt>Writes</dt><dd id="stat-writes">0</dd></div>
+              <div class="stats__row"><dt>Deletes</dt><dd id="stat-deletes">0</dd></div>
+              <div class="stats__row"><dt>Lists</dt><dd id="stat-lists">0</dd></div>
+              <div class="stats__row stats__row--accent">
+                <dt>Conflicts (412)</dt><dd id="stat-conflicts">0</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="inspector__section">
+            <h2 class="inspector__heading">Sync</h2>
+            <dl class="stats">
+              <div class="stats__row"><dt>Passes</dt><dd id="stat-passes">0</dd></div>
+              <div class="stats__row"><dt>Cards re-read</dt><dd id="stat-fetched">0</dd></div>
+              <div class="stats__row stats__row--good">
+                <dt>Reads skipped</dt><dd id="stat-skipped">0</dd>
+              </div>
+              <div class="stats__row"><dt>Last pass</dt><dd id="stat-duration">—</dd></div>
+            </dl>
+            <p class="inspector__note">
+              A list returns every key's ETag, so a card is re-read only when its ETag moved.
+              “Reads skipped” is that saving.
+            </p>
+          </section>
+
+          <section class="inspector__section">
+            <h2 class="inspector__heading">Activity</h2>
+            <ul id="activity" class="activity"></ul>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <!-- Card editor. -->
+    <dialog id="card-dialog" class="dialog">
+      <form id="card-form" class="dialog__body">
+        <h2 class="dialog__title">Edit card</h2>
+
+        <label class="field">
+          <span class="field__label">Title</span>
+          <input id="card-title" class="field__input" type="text" required />
+        </label>
+
+        <label class="field">
+          <span class="field__label">Notes</span>
+          <textarea id="card-notes" class="field__input field__textarea" rows="5"></textarea>
+        </label>
+
+        <p id="card-meta" class="dialog__meta"></p>
+
+        <div class="dialog__actions">
+          <button
+            id="card-delete"
+            class="button button--danger button--ghost"
+            type="button"
+            formnovalidate
+          >
+            Delete
+          </button>
+          <span class="dialog__spacer"></span>
+          <button id="card-cancel" class="button button--ghost" type="button" formnovalidate>
+            Cancel
+          </button>
+          <button class="button button--primary" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Shown when a conditional write loses a race on text that cannot be merged. -->
+    <dialog id="conflict-dialog" class="dialog">
+      <div class="dialog__body">
+        <h2 class="dialog__title dialog__title--warn">Someone saved first</h2>
+        <p class="dialog__lede" id="conflict-message"></p>
+
+        <div class="diff">
+          <section class="diff__side">
+            <h3 class="diff__heading">Theirs — now stored</h3>
+            <pre id="conflict-theirs" class="diff__body"></pre>
+          </section>
+          <section class="diff__side">
+            <h3 class="diff__heading">Yours — not written</h3>
+            <pre id="conflict-mine" class="diff__body"></pre>
+          </section>
+        </div>
+
+        <p class="dialog__note">
+          The write was refused with <code>412</code> because the ETag it required had already
+          changed. Nothing was lost — the choice is yours.
+        </p>
+
+        <div class="dialog__actions">
+          <button id="conflict-discard" class="button button--ghost" type="button">
+            Keep theirs
+          </button>
+          <span class="dialog__spacer"></span>
+          <button id="conflict-force" class="button button--primary" type="button">
+            Overwrite with mine
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

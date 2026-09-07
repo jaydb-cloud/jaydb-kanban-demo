@@ -1,0 +1,8 @@
+# Local server binary built by dev.sh
+.bin/
+
+# dev.sh server log
+.dev-server.log
+*.log
+
+.DS_Store

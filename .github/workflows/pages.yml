@@ -1,0 +1,44 @@
+name: Deploy to GitHub Pages
+
+# There is no build step: the site is the repository. The workflow uploads the
+# static files as-is, which is the whole point of the example.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a newer commit supersede an in-flight deploy, but never cancel a running
+# one midway -- a half-applied deploy would leave the site inconsistent.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the site
+        # Copy only what the browser needs. dev.sh and the workflow itself are
+        # developer tooling and are not served.
+        run: |
+          mkdir -p _site
+          cp index.html styles.css jaydb.js store.js README.md _site/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
