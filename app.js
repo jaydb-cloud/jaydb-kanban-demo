@@ -14,6 +14,15 @@
 import { JayDB, AuthError, JayDBError } from './jaydb.js';
 import { BoardStore, newId, PRESENCE_TTL_MS } from './store.js';
 import { CONFIG } from './config.js';
+import {
+  beginLogin as pkceBeginLogin,
+  completeLoginIfCallback as pkceCompleteCallback,
+  isSignedIn as pkceSignedIn,
+  identityClaims as pkceIdentityClaims,
+  ensureToken as pkceEnsureToken,
+  currentToken as pkceCurrentToken,
+  signOut as pkceSignOut,
+} from './pkce.js';
 
 const SETTINGS_KEY = 'jaydb_kanban_settings';
 const CLIENT_ID_KEY = 'jaydb_kanban_client_id';
@@ -513,10 +522,13 @@ els.connectForm.addEventListener('submit', async (event) => {
 });
 
 async function connect(settings) {
+  // When signed in via OIDC, authorize by the token's scopes: the server knows
+  // the user and enforces read/write per key. Otherwise fall back to the API key.
+  const signedIn = pkceSignedIn();
   const db = new JayDB({
     baseUrl: settings.baseUrl,
     namespace: settings.namespace,
-    apiKey: settings.apiKey,
+    ...(signedIn ? { getToken: pkceCurrentToken } : { apiKey: settings.apiKey }),
   });
 
   store = new BoardStore(db, settings.boardId, {
@@ -579,64 +591,81 @@ setInterval(() => {
   if (store && !els.inspector.hidden) renderActivity();
 }, 30_000);
 
-// --- Sign-in (IDENTITY ONLY) ---------------------------------------------
+// --- Sign-in --------------------------------------------------------------
 //
-// This fills in the user's name and avatar for presence and card attribution.
-// It does NOT authorize data access: reads and writes still ride on the API
-// key. A real "log in to reach the data" flow needs the server to accept an
-// OIDC token on the data plane — see DESIGN-oidc-data-plane.md and the README.
+// Two modes, chosen by config:
 //
-// Google works from a static page because Google Identity Services returns a
-// signed ID token to client-side JS with only a client ID (no secret). GitHub
-// cannot: its token endpoint requires a client secret even with PKCE, so a
-// static page cannot complete GitHub sign-in without a backend to hold that
-// secret. The GitHub button is therefore disabled here and arrives with the
-// tenant-issuer path.
+//  * CONFIG.oidc.issuer SET  -> real PKCE against the JayDB tenant. The token it
+//    yields is sent as Authorization: Bearer and the SERVER authorizes by its
+//    scopes (jaydb-cloud#58). This is the mode where sign-in actually gates data
+//    and where GitHub works (the tenant issuer holds GitHub's secret).
+//
+//  * CONFIG.oidc.issuer EMPTY -> identity-only Google (GIS), which fills in the
+//    name/avatar but does NOT gate data — data still rides on the API key. GitHub
+//    is impossible in this mode (no secret in a static page), so its button stays
+//    disabled.
 
-/** Decode a JWT payload without verifying it — fine for display-only fields. */
+const oidcEnabled = () => Boolean(CONFIG.oidc?.issuer && CONFIG.oidc?.clientId);
+
+function connectContext() {
+  // The connect-form values to restore after the authorize redirect returns.
+  return {
+    baseUrl: els.baseUrl.value.trim().replace(/\/+$/, '') || CONFIG.oidc.issuer,
+    namespace: els.namespace.value.trim() || CONFIG.oidc.namespace,
+    boardId: els.board.value.trim() || 'demo',
+    name: els.name.value.trim(),
+  };
+}
+
+async function startPkce(idp) {
+  try {
+    await pkceBeginLogin({
+      issuer: CONFIG.oidc.issuer,
+      clientId: CONFIG.oidc.clientId,
+      scopes: CONFIG.oidc.scopes ?? [],
+      idp,
+      context: connectContext(),
+    });
+    // beginLogin navigates away; nothing after this runs.
+  } catch (error) {
+    console.error(error);
+    els.connectError.textContent = error?.message ?? String(error);
+    els.connectError.hidden = false;
+  }
+}
+
+/** Decode a JWT payload without verifying it — display-only fields. */
 function decodeJwtPayload(jwt) {
   try {
     const [, payload] = jwt.split('.');
-    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-    return JSON.parse(decodeURIComponent(escape(json)));
+    return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
   } catch {
     return null;
   }
 }
 
-function applySignedInIdentity({ name, email, picture }) {
+function applyIdentityOnly({ name, email }) {
   if (name) els.name.value = name;
   els.signedInAs.hidden = false;
   els.signedInAs.textContent = `Signed in as ${name || email}. This sets your name only — data still uses the API key.`;
-  if (picture) signedInPicture = picture;
 }
 
-let signedInPicture = null;
-
-function initGoogleSignin() {
+// Identity-only Google (GIS), used only when OIDC is not configured.
+function initGoogleIdentityOnly() {
   if (!CONFIG.googleClientId) {
-    // No client ID configured: leave a hint instead of an empty slot.
     els.googleSignin.innerHTML =
       '<span class="signin__hint">Set googleClientId in config.js to enable Google sign-in.</span>';
     return;
   }
   if (!window.google?.accounts?.id) {
-    // The GIS script has not loaded yet; try again shortly.
-    setTimeout(initGoogleSignin, 300);
+    setTimeout(initGoogleIdentityOnly, 300);
     return;
   }
-
   window.google.accounts.id.initialize({
     client_id: CONFIG.googleClientId,
     callback: (response) => {
       const claims = decodeJwtPayload(response.credential);
-      if (claims) {
-        applySignedInIdentity({
-          name: claims.name,
-          email: claims.email,
-          picture: claims.picture,
-        });
-      }
+      if (claims) applyIdentityOnly({ name: claims.name, email: claims.email });
     },
   });
   window.google.accounts.id.renderButton(els.googleSignin, {
@@ -647,19 +676,72 @@ function initGoogleSignin() {
   });
 }
 
+function initSignin() {
+  if (oidcEnabled()) {
+    // Real PKCE: both providers go through the tenant issuer via the idp param.
+    els.googleSignin.innerHTML =
+      '<button type="button" class="button button--ghost">Sign in with Google</button>';
+    els.googleSignin.querySelector('button').addEventListener('click', () => startPkce('google'));
 
+    els.githubSignin.disabled = false;
+    els.githubSignin.title = 'Sign in with GitHub via your JayDB tenant';
+    els.githubSignin.addEventListener('click', () => startPkce('github'));
+  } else {
+    // Fallback: identity-only Google, GitHub stays disabled.
+    initGoogleIdentityOnly();
+  }
+}
 
-(function boot() {
+// --- pagehide / timers ----------------------------------------------------
+
+// Withdraw presence on close so other clients drop the avatar promptly. Not
+// guaranteed to run, which is exactly why presence also expires on age.
+window.addEventListener('pagehide', () => {
+  if (!store) return;
+  navigator.sendBeacon?.('data:,');
+  store.leave();
+});
+
+setInterval(() => {
+  if (store && !els.inspector.hidden) renderActivity();
+}, 30_000);
+
+// --- Boot -----------------------------------------------------------------
+
+(async function boot() {
   const saved = loadSettings();
   if (saved) {
     els.baseUrl.value = saved.baseUrl ?? '';
     els.namespace.value = saved.namespace ?? 'default';
     els.board.value = saved.boardId ?? 'demo';
     els.name.value = saved.name ?? '';
-    // Restored so a reload does not mean re-pasting the key. It never leaves
-    // this browser's storage, but see the README: this page can always read it.
     els.apiKey.value = saved.apiKey ?? '';
   }
   els.connect.hidden = false;
-  initGoogleSignin();
+  initSignin();
+
+  // If we returned from a PKCE authorize redirect, finish the exchange and open
+  // the board straight away using the token — no API key needed.
+  if (oidcEnabled()) {
+    try {
+      const ctx = await pkceCompleteCallback({ clientId: CONFIG.oidc.clientId });
+      if (ctx) {
+        // Refresh the token if needed, then connect with the token getter.
+        await pkceEnsureToken();
+        const claims = pkceIdentityClaims();
+        const settings = {
+          baseUrl: ctx.baseUrl || CONFIG.oidc.issuer,
+          namespace: ctx.namespace || CONFIG.oidc.namespace,
+          boardId: ctx.boardId || 'demo',
+          name: ctx.name || claims?.name || claims?.email || 'Player',
+          apiKey: '',
+        };
+        await connect(settings);
+      }
+    } catch (error) {
+      console.error(error);
+      els.connectError.textContent = error?.message ?? String(error);
+      els.connectError.hidden = false;
+    }
+  }
 })();

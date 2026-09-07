@@ -77,34 +77,45 @@ curl -s -o /dev/null -w '%{http_code}\n' -X PUT "$NS/probe" \
 
 ## Sign in with Google / GitHub
 
-The connect screen offers Google and GitHub sign-in. **Read what it does and does
-not do**, because the honest answer is not the obvious one.
+The connect screen offers Google and GitHub sign-in. It runs in one of **two
+modes**, chosen by config, and the difference is the whole point.
 
-**Sign-in here is identity only.** It fills in your name and avatar for presence
-and card attribution. It does **not** authorize data access — reads and writes
-still ride on the API key above. Signing in and typing a name are the same thing
-to the server; the board cannot tell your users apart, and cannot scope a
-document to one of them. That is the property described in the security note
-above, and no client-side login changes it.
+### Mode 1 — real sign-in that gates data (PKCE)
 
-**Google works from this static page. GitHub cannot.** Google Identity Services
-returns a signed ID token to client-side JavaScript with only a public client ID
-and no secret. GitHub's token endpoint requires a client secret even with PKCE
-(confirmed in GitHub's own docs), so a static page with no backend cannot
-complete a GitHub sign-in without shipping that secret — which would not be a
-secret. The GitHub button is therefore shown disabled, with a tooltip saying so.
+When `config.js` has an `oidc.issuer` set, both buttons run an
+Authorization-Code + PKCE flow against your JayDB tenant. The tenant issues a
+scoped access token, the app sends it as `Authorization: Bearer`, and the
+**server authorizes each read/write by the token's scopes**
+([jaydb-cloud#58](https://github.com/avivklas/jaydb-cloud/pull/58)). This is real
+per-user access — no API key involved — and it is the mode where **GitHub works**,
+because the tenant issuer holds GitHub's client secret (a static page cannot).
 
-Enabling Google: create an OAuth 2.0 **Web application** client ID in the Google
-Cloud console, add this site's origin (e.g. `https://avivklas.github.io`) to
-*Authorized JavaScript origins*, and set `googleClientId` in
-[`config.js`](./config.js). The client ID is a public identifier, safe to commit.
-Leave it empty and the Google button is replaced by a hint.
+Turn it on:
 
-**Making sign-in actually gate data** — real per-user access, and GitHub working
-— requires the server to accept an OIDC token on the document API, which it does
-not yet do. That is a jaydb-cloud change, designed in
-[`DESIGN-oidc-data-plane.md`](./DESIGN-oidc-data-plane.md), not something the
-static page can do alone.
+1. Run [`scripts/setup-tenant.sh`](./scripts/setup-tenant.sh) once to register the
+   public PKCE client and the Google/GitHub upstream IdPs on your tenant.
+2. Set `oidc.issuer` (e.g. `https://kanban.jaydb.com`), `oidc.clientId`,
+   `oidc.scopes`, and `oidc.namespace` in [`config.js`](./config.js). No secret —
+   PKCE needs none, and the client ID is public.
+3. Add `https://avivklas.github.io/jaydb-kanban/` as an authorized redirect URI
+   on the tenant client and on both OAuth apps.
+
+The server must also have the data-plane token path deployed (jaydb-cloud#58).
+Scopes are minted by the issuer; a stranger's login can be given `read:boards/*`
+(watch) and a player's `read+write:boards/*` (play) — a real read-only tier.
+
+### Mode 2 — identity only (fallback, no `oidc.issuer`)
+
+With no issuer configured, only Google works, and only to fill in your **name and
+avatar** — data still rides on the API key. Google Identity Services returns a
+signed ID token client-side with just a public client ID; GitHub can't (its token
+endpoint needs a secret), so its button stays disabled. Set `googleClientId` and
+add the site origin to the Google client's *Authorized JavaScript origins* to
+enable it. **Signing in here does not gate data** — the security note above still
+holds in full.
+
+Design and the (b)/(c) authorization tiers:
+[`DESIGN-oidc-data-plane.md`](./DESIGN-oidc-data-plane.md).
 
 ## Read this before you share the URL
 

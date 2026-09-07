@@ -80,21 +80,41 @@ export class JayDB {
    * @param {object}   opts
    * @param {string}   opts.baseUrl    Tenant origin, e.g. "https://acme.jaydb.com".
    * @param {string}   opts.namespace  Namespace name, e.g. "default".
-   * @param {string}   opts.apiKey     A `jcloud_sec_*` key. See the README's
-   *                                   security note — this is a read-write
-   *                                   credential and the browser can read it.
+   * @param {string}  [opts.apiKey]    A `jcloud_sec_*` key — sent as
+   *                                   X-JayDB-API-Key. Read-write, browser-readable.
+   * @param {function}[opts.getToken]  A `() => string | null` returning the
+   *                                   current OIDC access token, sent as
+   *                                   Authorization: Bearer. Preferred over apiKey
+   *                                   when the user signed in — the server then
+   *                                   authorizes by the token's scopes and knows
+   *                                   who the user is. Exactly one of apiKey /
+   *                                   getToken must be provided.
    */
-  constructor({ baseUrl, namespace, apiKey }) {
+  constructor({ baseUrl, namespace, apiKey, getToken }) {
     if (!baseUrl) throw new Error('jaydb: baseUrl is required');
     if (!namespace) throw new Error('jaydb: namespace is required');
-    if (!apiKey) throw new Error('jaydb: apiKey is required');
+    if (!apiKey && !getToken) throw new Error('jaydb: apiKey or getToken is required');
 
     this.baseUrl = String(baseUrl).replace(/\/+$/, '');
     this.namespace = namespace;
-    this.apiKey = apiKey;
+    this.apiKey = apiKey ?? null;
+    this.getToken = getToken ?? null;
 
     /** Request counters, surfaced in the demo's stats panel. */
     this.stats = { reads: 0, writes: 0, deletes: 0, lists: 0, conflicts: 0 };
+  }
+
+  /**
+   * Build the auth header for a request. A bearer token wins when present, so a
+   * signed-in session authorizes by its scopes; otherwise the API key is used.
+   */
+  #authHeaders() {
+    if (this.getToken) {
+      const token = this.getToken();
+      if (token) return { Authorization: `Bearer ${token}` };
+    }
+    if (this.apiKey) return { 'X-JayDB-API-Key': this.apiKey };
+    return {};
   }
 
   #docsUrl(key = '') {
@@ -108,7 +128,7 @@ export class JayDB {
     try {
       response = await fetch(url, {
         method,
-        headers: { 'X-JayDB-API-Key': this.apiKey, ...headers },
+        headers: { ...this.#authHeaders(), ...headers },
         body,
         signal,
         // The API authenticates on an explicit header, so ambient cookies are
