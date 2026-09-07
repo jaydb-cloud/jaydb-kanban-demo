@@ -139,6 +139,88 @@ and bolting it on now would be building the expensive model the demo does not us
 So: **(b) with key-prefix scopes, and (c) deferred as a named future tier**, not
 combined.
 
+### (c) Per-document ownership — full design
+
+Requested for the platform (not the kanban demo, which stays on (b)). This is the
+tier for an app where a document belongs to a user: a notes app, a per-user
+settings store, private drafts. It is a genuinely different authorization model
+from (b), so it is specified separately here rather than folded in.
+
+**What it decides.** For a mutating request on key `K` by principal `P`, the
+storage record at `K` carries an owner, and the write is allowed iff `P` is that
+owner (or holds an override capability — see below). Unlike (b), the decision
+cannot be made from the token alone; it depends on state in the document.
+
+**The storage reality that shapes it.** The db layer offers exactly one
+server-side precondition: an ETag compare (`WithExpectedETag`, `CreateOnly`,
+`WithDeleteExpectedETag` in `pkg/db/db.go`). There is **no** server-side "write
+only if field X == Y" predicate. So ownership cannot be pushed into the driver;
+it is enforced in the gateway as **read-check-write**, and that ordering is the
+whole design, because a naive version has a TOCTOU hole.
+
+**Where the owner lives.** Two options, and the choice is load-bearing:
+
+- **Sidecar metadata key** (recommended): the owner is stored by the gateway at a
+  reserved key derived from the document key, e.g. `K` → `__acl__/K`, holding
+  `{"owner": "<provider>:<subject>", "created": ...}`. The document body is never
+  touched, so an app's own schema is not invaded and a user cannot forge
+  ownership by putting an `owner` field in their JSON. This is the clean seam.
+- **In-body `owner` field** (rejected): reading ownership from the document body
+  means the client controls it, so a caller could claim any document by writing
+  the right field. Only viable if the gateway strips/overwrites the field on
+  every write, which is more fragile than a separate key. Do not do this.
+
+**The write path, TOCTOU-safe.** The danger: read the ACL, see `P` is the owner,
+then write — but between the read and the write, ownership changed. The fix reuses
+the ETag primitive that already exists:
+
+```
+On PUT/DELETE of K by principal P, when the namespace is ownership-enforced:
+  1. GET __acl__/K  -> (acl, aclETag), or NOT-FOUND
+  2. NOT-FOUND (first write):
+       - allocate ownership to P: PUT __acl__/K {owner: P} with If-None-Match:*
+         (CreateOnly). If it 412s, another writer claimed it first -> re-read,
+         go to step 3 with their ACL.
+       - then the user's PUT K proceeds.
+  3. FOUND: if acl.owner != P and P lacks the override capability -> 403.
+       - otherwise the user's PUT K proceeds, carrying the user's own If-Match on
+         K as today (the two conditions compose: ownership gate THEN CAS).
+  4. DELETE K also deletes __acl__/K (best-effort; a dangling ACL is harmless and
+     re-adopted on next create).
+```
+
+The ACL read is the read-before-write cost, and the `CreateOnly` allocation is
+what closes the first-writer race without a lock. Ownership *transfer* is a
+gateway operation on `__acl__/K` gated on the current owner or an override.
+
+**Who may override.** An ownership model needs an escape hatch or it strands data
+(the owner deletes their account; an admin must clean up). Model it as a (b)-style
+scope: a principal holding `admin:<prefix>` bypasses the owner check for keys
+under that prefix. So (c) is layered ON (b), not instead of it — (b) gates which
+prefixes you may touch at all, (c) gates ownership within them, and `admin:*` is
+the operator override. That layering is why (b) had to come first.
+
+**Cost, stated honestly.** Every mutation in an ownership-enforced namespace
+becomes: one ACL GET + (first-write) one CreateOnly PUT + the user's own write —
+2–3 storage ops where (b) is zero extra. On the read path, if reads are also
+owner-scoped, a GET pays an ACL read too. The `$0-idle` cost story survives (still
+DynamoDB, still scale-to-zero), but the per-request op count roughly doubles for
+writes. That is the price of per-document authorization and it should be opt-in
+**per namespace**, not global — a namespace flag `ownership: enforced`, off by
+default, so (a)/(b) namespaces pay nothing.
+
+**Boundary with the demo.** The kanban board must **not** enable this: shared
+editing is the point, so every player holds `write:boards/demo/*` under (b) and no
+ACL is consulted. (c) is a namespace opt-in for a *different* app.
+
+**Scope of the eventual server work:** an `__acl__/` reserved-prefix convention
+(and a guard so clients cannot write it directly), the read-check-write path above
+wired into the same `Authenticate`→authorize seam as (b), a per-namespace
+`ownership` flag, the `admin:<prefix>` override scope, and a transfer endpoint.
+Larger than (b); still bounded. This is a design, not a commitment to build it
+now — (b) ships first and stands alone.
+
+
 ### 2. Tenant configuration (you, once)
 
 On the throwaway tenant that hosts the demo (see below), register via
@@ -182,19 +264,23 @@ registration; I cannot create or read those.
 
 ## What I need to proceed
 
-1. **Authorization: (b) key-prefix scopes — CONFIRMED.** (c) deferred.
-2. **The tenant** to host it (recommend a fresh `kanban` org).
-3. **Google + GitHub OAuth client secrets** for the tenant IdP registration.
+1. **Authorization: (b) key-prefix scopes — CONFIRMED. (c) per-document ownership
+   — designed above as a separate per-namespace opt-in tier, layered on (b).**
+2. **The tenant** — a `kanban` org must be created; the E2E onboarding backdoor is
+   closed in production (correctly), so this needs the maintainer's console
+   session or an org-admin key. The agent cannot create it.
+3. **OAuth secrets, handled out-of-band.** The Google client ID is public and set
+   in `config.js`. The Google client SECRET was exposed in chat and **must be
+   rotated**; the new value goes into `GOOGLE_CLIENT_SECRET` when running
+   `scripts/setup-tenant.sh`, never into the repo. The GitHub client ID is
+   `Ov23liITiMrudCQbBVmI`; its secret has not been shared and should stay
+   out-of-band.
 
-The exact admin API calls to register the client and the two IdPs live in
-[`scripts/setup-tenant.sh`](./scripts/setup-tenant.sh) — a runnable script that
-takes the org-admin key and the two OAuth secrets as environment variables, so
-setup is a single deterministic command rather than four hand-copied curls. The
-`scopes` and `audiences` fields it sends are already accepted by the registration
-surface, so this half needs **no** server change — only the gateway's scope
-*enforcement* (part 1) does.
+Provider-side reminder: `https://avivklas.github.io/jaydb-kanban/` must be an
+authorized redirect URI, and `https://avivklas.github.io` an authorized origin,
+in both the Google and GitHub OAuth apps.
 
-With those three, the work is: one server PR (the data-plane JWT path + prefix-
-scope enforcement + tests, proven against tokens that must be rejected as well as
-accepted), the tenant registration (the script), and one client PR (PKCE flow
-requesting the scopes for the signed-in user's tier).
+With the tenant created and the (rotated) secrets in env, `scripts/setup-tenant.sh`
+is one command. The server work is: the (b) JWT + prefix-scope PR first (it stands
+alone and the demo needs only this), then optionally the (c) ownership tier as a
+separate PR for a future app.

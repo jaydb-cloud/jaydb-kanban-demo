@@ -9,5 +9,7 @@
  * the client ID below. Leave it empty to hide the Google button.
  */
 export const CONFIG = {
-  googleClientId: '',
+  // PUBLIC identifier, safe to commit — this is not a secret. The Google client
+  // SECRET is never used in the browser and must never appear in this repo.
+  googleClientId: '1083061471320-r701f07o2kj79m9ej8h9jf8ristcesov.apps.googleusercontent.com',
 };
