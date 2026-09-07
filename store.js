@@ -457,11 +457,13 @@ export class BoardStore extends EventTarget {
 
       const known = this.cards.get(id);
       if (known && known.etag === item.etag) this.syncStats.cardsSkipped++;
-      else stale.push({ id, key: item.key });
+      // Carry the listed ETag: if the response header turns out to be
+      // unreadable, this spares the client a recovery request per card.
+      else stale.push({ id, key: item.key, etag: item.etag });
     }
 
-    await mapLimit(stale, READ_CONCURRENCY, async ({ id, key }) => {
-      const doc = await this.db.get(key);
+    await mapLimit(stale, READ_CONCURRENCY, async ({ id, key, etag }) => {
+      const doc = await this.db.get(key, { knownETag: etag });
       if (doc) {
         this.cards.set(id, { id, data: doc.data, etag: doc.etag });
         this.syncStats.cardsFetched++;

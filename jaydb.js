@@ -157,23 +157,70 @@ export class JayDB {
   /**
    * Read one document.
    *
+   * @param {object}  opts
+   * @param {string} [opts.knownETag]  An ETag the caller already has for this
+   *                                   key, e.g. from a listing. Used only when
+   *                                   the response header is unreadable, which
+   *                                   saves the recovery request below.
    * @returns {Promise<{key: string, data: any, etag: string} | null>}
    *          `null` when the document does not exist — absence is a normal
    *          answer here, not an exception.
    */
-  async get(key, { signal } = {}) {
+  async get(key, { signal, knownETag } = {}) {
     this.stats.reads++;
     const response = await this.#request('GET', this.#docsUrl(key), { signal }, key);
 
     if (response.status === 404) return null;
     if (!response.ok) throw await this.#errorFrom(response, key);
 
-    return {
-      key,
-      data: await response.json(),
-      etag: unquoteETag(response.headers.get('ETag')),
-    };
+    const data = await response.json();
+    let etag = unquoteETag(response.headers.get('ETag'));
+
+    // `ETag` is not a CORS-safelisted response header, so a browser hides it
+    // from us unless the server sends `Access-Control-Expose-Headers: ETag`.
+    // Without an ETag there is no conditional write at all, so fall back to
+    // whatever the caller already knows, then to a single-key listing, where the
+    // ETag travels in the JSON body instead.
+    //
+    // See jaydb-cloud#55 — this whole branch disappears once that lands.
+    if (!etag) {
+      this.#warnOnce(
+        'etag-not-exposed',
+        'The ETag response header is not readable from this origin, so conditional ' +
+          'writes need the ETag recovered from a listing. The server needs ' +
+          '"Access-Control-Expose-Headers: ETag" (jaydb-cloud#55).',
+      );
+      etag = knownETag ?? (await this.#etagFromListing(key, signal));
+    }
+
+    return { key, data, etag };
   }
+
+  /**
+   * Recover one key's ETag from a listing, which carries it in the body.
+   *
+   * A prefix list is used because it is an exact-key lookup here: the prefix IS
+   * the full key, so at most one item can match.
+   */
+  async #etagFromListing(key, signal) {
+    try {
+      const { items } = await this.list({ prefix: key, limit: 10, signal });
+      return items.find((item) => item.key === key)?.etag ?? null;
+    } catch {
+      // Better to return a document with no ETag than to fail the read: the
+      // caller degrades to a non-conditional write and says so.
+      return null;
+    }
+  }
+
+  #warnOnce(id, message) {
+    this.#warned ??= new Set();
+    if (this.#warned.has(id)) return;
+    this.#warned.add(id);
+    console.warn(`[jaydb] ${message}`);
+  }
+
+  #warned;
 
   /**
    * Write one document.
