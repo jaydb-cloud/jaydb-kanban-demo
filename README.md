@@ -114,9 +114,6 @@ add the site origin to the Google client's *Authorized JavaScript origins* to
 enable it. **Signing in here does not gate data** — the security note above still
 holds in full.
 
-Design and the (b)/(c) authorization tiers:
-[`DESIGN-oidc-data-plane.md`](./DESIGN-oidc-data-plane.md).
-
 ## Read this before you share the URL
 
 **The API key is readable by anyone who can open the page.** The app asks for it
