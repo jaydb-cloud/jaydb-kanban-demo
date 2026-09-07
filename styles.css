@@ -203,6 +203,41 @@ body {
   font-size: 13px;
 }
 
+.signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--border-color);
+}
+
+.signin__label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.signin__buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.signin__github {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.signin__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.signin__as {
+  font-size: 12px;
+  color: var(--success);
+}
+
 .connect__footnote {
   text-align: center;
   font-size: 12px;
