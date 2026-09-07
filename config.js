@@ -9,14 +9,7 @@
  * the client ID below. Leave it empty to hide the Google button.
  */
 export const CONFIG = {
-  // PUBLIC identifier, safe to commit — this is not a secret. The Google client
-  // SECRET is never used in the browser and must never appear in this repo.
-  googleClientId: '1083061471320-r701f07o2kj79m9ej8h9jf8ristcesov.apps.googleusercontent.com',
-
-  // JayDB tenant OIDC, for the PKCE sign-in that actually gates data access.
-  // The issuer is the tenant's own host; the client is the public PKCE client
-  // registered via scripts/setup-tenant.sh. Leave `issuer` empty to fall back to
-  // the API-key / identity-only flow.
+  // JayDB tenant OIDC — the sign-in that gates data access. The issuer is the
   oidc: {
     // e.g. "https://kanban.jaydb.com" — the tenant that hosts the demo.
     issuer: 'https://kanban.jaydb.com',
