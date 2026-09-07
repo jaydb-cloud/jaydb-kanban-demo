@@ -19,7 +19,7 @@ export const CONFIG = {
   // the API-key / identity-only flow.
   oidc: {
     // e.g. "https://kanban.jaydb.com" — the tenant that hosts the demo.
-    issuer: '',
+    issuer: 'https://kanban.jaydb.com',
     // The public client_id registered on that tenant (setup-tenant.sh uses
     // "kanban-demo").
     clientId: 'kanban-demo',
