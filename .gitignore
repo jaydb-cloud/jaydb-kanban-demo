@@ -5,4 +5,13 @@
 .dev-server.log
 *.log
 
+# Secrets must NEVER land in this public repo. The tenant setup script reads
+# OAuth secrets from environment variables, never from a committed file; these
+# patterns are a backstop against an accidental local secrets file.
+.env
+*.env
+secrets*
+*secret*
+!scripts/setup-tenant.sh
+
 .DS_Store
