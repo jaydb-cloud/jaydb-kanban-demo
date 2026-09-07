@@ -1,7 +1,5 @@
-# Local server binary built by dev.sh
+# Local build/log artifacts
 .bin/
-
-# dev.sh server log
 .dev-server.log
 *.log
 

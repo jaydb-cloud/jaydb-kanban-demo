@@ -2,17 +2,18 @@
 
 A kanban board that several people can use at once, built to show what
 [JayDB Cloud](https://github.com/avivklas/jaydb-cloud) can do as an app's only
-backend. There is no server of its own, no build step, and no framework: five
-static files that talk to the document API over `fetch`.
+backend. There is no server of its own, no build step, and no framework: a
+handful of static files that talk to the document API over `fetch`.
 
-**Live: https://avivklas.github.io/jaydb-kanban/** — it asks for a tenant URL,
-namespace and API key on load. The deployed page ships **no** credential; you
-bring your own (and see the security note below before you hand the URL around).
+**Live: https://avivklas.github.io/jaydb-kanban/** — players sign in with Google
+or GitHub; there is no key to paste. The served files carry no credential.
 
 ```
 index.html   markup
 styles.css   styling
-jaydb.js     ~280 lines — the whole client for the document API
+config.js    tenant/OIDC config (public values only)
+jaydb.js     the client for the document API (API key OR bearer token)
+pkce.js      the browser PKCE sign-in flow
 store.js     the board's data layer: sync, conflict handling, presence
 app.js       DOM wiring
 ```
@@ -22,35 +23,29 @@ Deployment is `cp` — GitHub Pages serves this repository as-is
 
 ## Run it
 
-Against a **local** server, so you need no AWS account and nothing persistent:
-
-```bash
-JAYDB_CLOUD_REPO=/path/to/jaydb-cloud ./dev.sh
-```
-
-It builds the server, starts it on an in-memory store, creates an org, a
-namespace and an API key, serves the page, and prints what to paste in. Drop the
-env var if your `jaydb-cloud` checkout is a sibling directory. Everything
-disappears when you stop the process.
-
-To point it at a **real tenant** instead, serve the directory (or just open the
-live URL) and enter your tenant URL (`https://acme.jaydb.com`), a namespace, and
-a key:
+The demo authenticates with **sign-in**, so it needs a JayDB tenant that has an
+OIDC issuer configured (see *Sign in* below). Point it at one and serve the
+directory:
 
 ```bash
 python3 -m http.server 5173 --bind 127.0.0.1
 ```
 
-Either way, one thing has to be true server-side first:
+Set `oidc.issuer`/`oidc.clientId` in [`config.js`](./config.js) to your tenant,
+and add `http://localhost:5173` as an authorized redirect URI on the tenant
+client and both OAuth apps. The live deployment already points at its tenant, so
+opening the live URL is the zero-setup way to try it.
 
-```bash
-# whichever origin you are loading the page from
-JAYDB_CORS_ALLOWED_ORIGINS="https://avivklas.github.io,http://localhost:5173"
-```
+Two server-side prerequisites on the tenant (both shipped in jaydb-cloud):
 
-The gateway fails closed when that is unset, so without it every request fails as
-an opaque CORS error. It accepts exact origins, single-label wildcards
-(`https://*.example.com`), or `*`.
+- the data-plane token path
+  ([#58](https://github.com/avivklas/jaydb-cloud/pull/58)), so a bearer token
+  authorizes reads/writes;
+- the origin you load the page from must be allowed. CORS now reads each
+  registered app's `allowed_origins`
+  ([#60](https://github.com/avivklas/jaydb-cloud/pull/60)), so registering the
+  app (via `scripts/setup-tenant.sh`) grants it — no operator env change.
+
 
 ## Server requirement
 
@@ -77,73 +72,46 @@ curl -s -o /dev/null -w '%{http_code}\n' -X PUT "$NS/probe" \
 
 ## Sign in with Google / GitHub
 
-The connect screen offers Google and GitHub sign-in. It runs in one of **two
-modes**, chosen by config, and the difference is the whole point.
+Players **sign in with Google or GitHub** — that is the only way in. There is no
+API key to paste and no shared credential: the connect screen asks only which
+board to open.
 
-### Mode 1 — real sign-in that gates data (PKCE)
+Sign-in is an Authorization-Code + PKCE flow against your JayDB tenant. The
+tenant issues a scoped access token, the app sends it as `Authorization: Bearer`,
+and the **server authorizes each read/write by the token's scopes**
+([jaydb-cloud#58](https://github.com/avivklas/jaydb-cloud/pull/58)). Every player
+is a real, distinct user; nobody holds a namespace-wide key. GitHub works because
+the **tenant issuer** holds GitHub's client secret — a static page never sees it,
+and PKCE needs no secret of its own.
 
-When `config.js` has an `oidc.issuer` set, both buttons run an
-Authorization-Code + PKCE flow against your JayDB tenant. The tenant issues a
-scoped access token, the app sends it as `Authorization: Bearer`, and the
-**server authorizes each read/write by the token's scopes**
-([jaydb-cloud#58](https://github.com/avivklas/jaydb-cloud/pull/58)). This is real
-per-user access — no API key involved — and it is the mode where **GitHub works**,
-because the tenant issuer holds GitHub's client secret (a static page cannot).
+Setup (once):
 
-Turn it on:
-
-1. Run [`scripts/setup-tenant.sh`](./scripts/setup-tenant.sh) once to register the
+1. Run [`scripts/setup-tenant.sh`](./scripts/setup-tenant.sh) to register the
    public PKCE client and the Google/GitHub upstream IdPs on your tenant.
 2. Set `oidc.issuer` (e.g. `https://kanban.jaydb.com`), `oidc.clientId`,
-   `oidc.scopes`, and `oidc.namespace` in [`config.js`](./config.js). No secret —
-   PKCE needs none, and the client ID is public.
-3. Add `https://avivklas.github.io/jaydb-kanban/` as an authorized redirect URI
-   on the tenant client and on both OAuth apps.
+   `oidc.scopes`, and `oidc.namespace` in [`config.js`](./config.js) — all public,
+   no secret.
+3. Add `https://avivklas.github.io/jaydb-kanban/` as an authorized redirect URI on
+   the tenant client and both OAuth apps.
 
-The server must also have the data-plane token path deployed (jaydb-cloud#58).
-Scopes are minted by the issuer; a stranger's login can be given `read:boards/*`
-(watch) and a player's `read+write:boards/*` (play) — a real read-only tier.
+The tenant must have the data-plane token path deployed
+([jaydb-cloud#58](https://github.com/avivklas/jaydb-cloud/pull/58)) and its origin
+registered so CORS allows it
+([jaydb-cloud#60](https://github.com/avivklas/jaydb-cloud/pull/60), which reads
+the app's `allowed_origins`). Scopes are minted by the issuer, so a read-only tier
+is `read:boards/*` and a player is `read+write:boards/*`.
 
-### Mode 2 — identity only (fallback, no `oidc.issuer`)
+## Security
 
-With no issuer configured, only Google works, and only to fill in your **name and
-avatar** — data still rides on the API key. Google Identity Services returns a
-signed ID token client-side with just a public client ID; GitHub can't (its token
-endpoint needs a secret), so its button stays disabled. Set `googleClientId` and
-add the site origin to the Google client's *Authorized JavaScript origins* to
-enable it. **Signing in here does not gate data** — the security note above still
-holds in full.
+The demo hands out **no shared credential**. Each player authenticates as
+themselves via Google/GitHub and gets a token scoped to the board keyspace; the
+served files carry no secret. Presence and card attribution are the signed-in
+user's real identity, and the server — not the client — decides what each token
+may read or write.
 
-## Read this before you share the URL
-
-**The API key is readable by anyone who can open the page.** The app asks for it
-at runtime and keeps it in `localStorage`, so the hosted files contain no
-credential and nothing is committed — but that is deployment hygiene, not a
-security boundary. Anything running on the page can read it, and the key travels
-with anyone you give it to.
-
-That matters more than it might sound, because of two properties of the data API
-as it stands:
-
-- **Keys are read-write.** There is no read-only key. An `APIKey` carries only an
-  org and an optional namespace, and the method is not checked against any
-  permission, so any key that can read can also write and delete.
-- **There is no end-user identity.** The document API authenticates the *key*,
-  not the person. It accepts only a `jcloud_sec_*` secret — there is no OIDC or
-  JWT path on `/v1/n/.../docs/...` — so the server cannot distinguish your users
-  from each other and cannot scope a document to one of them.
-
-So everyone you hand this URL to gets full read-write access to the whole
-namespace, and the board's honesty about who moved a card is a UI convention that
-any user can forge. That is fine for a demo, an internal tool, or a trusted
-group. It is **not** the shape to give anonymous users on the public internet.
-
-Two things to do regardless:
-
-1. Scope the key to a single namespace, not the whole org, so the blast radius is
-   one namespace of disposable data. (`dev.sh` mints an org-wide key for
-   convenience — `namespace_id` comes back empty.)
-2. Treat the namespace as public data.
+The `config.js` values (`oidc.issuer`, `oidc.clientId`) are public identifiers,
+safe to commit. No client secret is ever in this repo or on the wire; the tenant
+issuer holds the upstream OAuth secrets.
 
 ## What it demonstrates
 

@@ -31,13 +31,8 @@ const $ = (id) => document.getElementById(id);
 
 const els = {
   connect: $('connect'),
-  connectForm: $('connect-form'),
   connectError: $('connect-error'),
-  baseUrl: $('input-base-url'),
-  namespace: $('input-namespace'),
-  apiKey: $('input-api-key'),
   board: $('input-board'),
-  name: $('input-name'),
   googleSignin: $('google-signin'),
   githubSignin: $('github-signin'),
   signedInAs: $('signed-in-as'),
@@ -492,43 +487,18 @@ els.toggleInspector.addEventListener('click', () => {
 els.disconnect.addEventListener('click', async () => {
   await store?.leave();
   store = null;
+  pkceSignOut();
   els.boardView.hidden = true;
   els.connect.hidden = false;
 });
 
-els.connectForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  els.connectError.hidden = true;
-
-  const settings = {
-    baseUrl: els.baseUrl.value.trim().replace(/\/+$/, ''),
-    namespace: els.namespace.value.trim(),
-    apiKey: els.apiKey.value.trim(),
-    boardId: els.board.value.trim(),
-    name: els.name.value.trim(),
-  };
-
-  try {
-    await connect(settings);
-    saveSettings(settings);
-  } catch (error) {
-    console.error(error);
-    els.connectError.textContent =
-      error instanceof AuthError
-        ? `${error.message} — check the key and that it covers namespace “${settings.namespace}”.`
-        : (error?.message ?? String(error));
-    els.connectError.hidden = false;
-  }
-});
-
 async function connect(settings) {
-  // When signed in via OIDC, authorize by the token's scopes: the server knows
-  // the user and enforces read/write per key. Otherwise fall back to the API key.
-  const signedIn = pkceSignedIn();
+  // Authorized by the signed-in user's OIDC token: the server knows the user
+  // and enforces read/write per key by the token's scopes.
   const db = new JayDB({
     baseUrl: settings.baseUrl,
     namespace: settings.namespace,
-    ...(signedIn ? { getToken: pkceCurrentToken } : { apiKey: settings.apiKey }),
+    getToken: pkceCurrentToken,
   });
 
   store = new BoardStore(db, settings.boardId, {
@@ -573,6 +543,7 @@ async function connect(settings) {
   setPill('ok', 'synced');
 
   store.startPolling();
+  saveSettings({ boardId: settings.boardId });
 
   els.connect.hidden = true;
   els.boardView.hidden = false;
@@ -591,29 +562,20 @@ setInterval(() => {
   if (store && !els.inspector.hidden) renderActivity();
 }, 30_000);
 
-// --- Sign-in --------------------------------------------------------------
+// --- Sign-in (PKCE) -------------------------------------------------------
 //
-// Two modes, chosen by config:
-//
-//  * CONFIG.oidc.issuer SET  -> real PKCE against the JayDB tenant. The token it
-//    yields is sent as Authorization: Bearer and the SERVER authorizes by its
-//    scopes (jaydb-cloud#58). This is the mode where sign-in actually gates data
-//    and where GitHub works (the tenant issuer holds GitHub's secret).
-//
-//  * CONFIG.oidc.issuer EMPTY -> identity-only Google (GIS), which fills in the
-//    name/avatar but does NOT gate data — data still rides on the API key. GitHub
-//    is impossible in this mode (no secret in a static page), so its button stays
-//    disabled.
-
-const oidcEnabled = () => Boolean(CONFIG.oidc?.issuer && CONFIG.oidc?.clientId);
+// The only way in: a real Authorization-Code + PKCE login against the JayDB
+// tenant. The access token it yields is sent as Authorization: Bearer and the
+// server authorizes by its scopes (jaydb-cloud#58). Tenant, namespace and scopes
+// come from config.js; the board name comes from the field, the display name
+// from the login.
 
 function connectContext() {
-  // The connect-form values to restore after the authorize redirect returns.
+  // Values to restore after the authorize redirect returns.
   return {
-    baseUrl: els.baseUrl.value.trim().replace(/\/+$/, '') || CONFIG.oidc.issuer,
-    namespace: els.namespace.value.trim() || CONFIG.oidc.namespace,
-    boardId: els.board.value.trim() || 'demo',
-    name: els.name.value.trim(),
+    baseUrl: CONFIG.oidc.issuer,
+    namespace: CONFIG.oidc.namespace,
+    boardId: (els.board.value || '').trim() || 'demo',
   };
 }
 
@@ -634,62 +596,22 @@ async function startPkce(idp) {
   }
 }
 
-/** Decode a JWT payload without verifying it — display-only fields. */
-function decodeJwtPayload(jwt) {
-  try {
-    const [, payload] = jwt.split('.');
-    return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
-  } catch {
-    return null;
-  }
-}
-
-function applyIdentityOnly({ name, email }) {
-  if (name) els.name.value = name;
-  els.signedInAs.hidden = false;
-  els.signedInAs.textContent = `Signed in as ${name || email}. This sets your name only — data still uses the API key.`;
-}
-
-// Identity-only Google (GIS), used only when OIDC is not configured.
-function initGoogleIdentityOnly() {
-  if (!CONFIG.googleClientId) {
-    els.googleSignin.innerHTML =
-      '<span class="signin__hint">Set googleClientId in config.js to enable Google sign-in.</span>';
-    return;
-  }
-  if (!window.google?.accounts?.id) {
-    setTimeout(initGoogleIdentityOnly, 300);
-    return;
-  }
-  window.google.accounts.id.initialize({
-    client_id: CONFIG.googleClientId,
-    callback: (response) => {
-      const claims = decodeJwtPayload(response.credential);
-      if (claims) applyIdentityOnly({ name: claims.name, email: claims.email });
-    },
-  });
-  window.google.accounts.id.renderButton(els.googleSignin, {
-    theme: 'filled_black',
-    size: 'large',
-    text: 'signin_with',
-    shape: 'pill',
-  });
-}
-
 function initSignin() {
-  if (oidcEnabled()) {
-    // Real PKCE: both providers go through the tenant issuer via the idp param.
-    els.googleSignin.innerHTML =
-      '<button type="button" class="button button--ghost">Sign in with Google</button>';
-    els.googleSignin.querySelector('button').addEventListener('click', () => startPkce('google'));
-
-    els.githubSignin.disabled = false;
-    els.githubSignin.title = 'Sign in with GitHub via your JayDB tenant';
-    els.githubSignin.addEventListener('click', () => startPkce('github'));
-  } else {
-    // Fallback: identity-only Google, GitHub stays disabled.
-    initGoogleIdentityOnly();
+  if (!CONFIG.oidc?.issuer || !CONFIG.oidc?.clientId) {
+    // Misconfiguration, not a user path: there is no API-key fallback anymore.
+    els.connectError.textContent =
+      'Sign-in is not configured (set oidc.issuer and oidc.clientId in config.js).';
+    els.connectError.hidden = false;
+    els.googleSignin.innerHTML = '';
+    els.githubSignin.disabled = true;
+    return;
   }
+
+  els.googleSignin.innerHTML =
+    '<button type="button" class="button button--primary">Sign in with Google</button>';
+  els.googleSignin.querySelector('button').addEventListener('click', () => startPkce('google'));
+
+  els.githubSignin.addEventListener('click', () => startPkce('github'));
 }
 
 // --- pagehide / timers ----------------------------------------------------
@@ -710,33 +632,25 @@ setInterval(() => {
 
 (async function boot() {
   const saved = loadSettings();
-  if (saved) {
-    els.baseUrl.value = saved.baseUrl ?? '';
-    els.namespace.value = saved.namespace ?? 'default';
-    els.board.value = saved.boardId ?? 'demo';
-    els.name.value = saved.name ?? '';
-    els.apiKey.value = saved.apiKey ?? '';
-  }
+  if (saved?.boardId) els.board.value = saved.boardId;
+
   els.connect.hidden = false;
   initSignin();
 
   // If we returned from a PKCE authorize redirect, finish the exchange and open
-  // the board straight away using the token — no API key needed.
-  if (oidcEnabled()) {
+  // the board straight away using the token.
+  if (CONFIG.oidc?.issuer && CONFIG.oidc?.clientId) {
     try {
       const ctx = await pkceCompleteCallback({ clientId: CONFIG.oidc.clientId });
       if (ctx) {
-        // Refresh the token if needed, then connect with the token getter.
         await pkceEnsureToken();
         const claims = pkceIdentityClaims();
-        const settings = {
+        await connect({
           baseUrl: ctx.baseUrl || CONFIG.oidc.issuer,
           namespace: ctx.namespace || CONFIG.oidc.namespace,
           boardId: ctx.boardId || 'demo',
-          name: ctx.name || claims?.name || claims?.email || 'Player',
-          apiKey: '',
-        };
-        await connect(settings);
+          name: claims?.name || claims?.email || 'Player',
+        });
       }
     } catch (error) {
       console.error(error);

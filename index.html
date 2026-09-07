@@ -5,91 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JayDB Kanban — a shared board with no backend</title>
     <link rel="stylesheet" href="./styles.css" />
-    <!-- Google Identity Services. Loaded unconditionally; app.js only calls into
-         it when a Google client ID is configured. No client secret is involved —
-         this returns a signed ID token to client-side JS. -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
     <!-- Setup. Credentials are entered here at runtime and kept in this
          browser; nothing is baked into the files served to anyone else. -->
     <section id="connect" class="connect" hidden>
-      <form id="connect-form" class="connect__card" autocomplete="off">
+      <div id="connect-form" class="connect__card">
         <h1 class="connect__title">Shared kanban</h1>
         <p class="connect__lede">
           A static page — no server, no build step. Every card is a document read and written
           straight from the browser.
         </p>
 
-        <label class="field">
-          <span class="field__label">Tenant URL</span>
-          <input
-            id="input-base-url"
-            class="field__input"
-            type="url"
-            placeholder="https://acme.jaydb.com"
-            required
-          />
-          <span class="field__hint">Your tenant subdomain. The data API refuses the apex domain.</span>
-        </label>
-
-        <label class="field">
-          <span class="field__label">Namespace</span>
-          <input id="input-namespace" class="field__input" type="text" value="default" required />
-        </label>
-
-        <label class="field">
-          <span class="field__label">API key</span>
-          <input
-            id="input-api-key"
-            class="field__input field__input--mono"
-            type="password"
-            placeholder="jcloud_sec_…"
-          />
-          <span class="field__hint field__hint--warn">
-            Read-write, and readable by anything running on this page. Scope it to one namespace and
-            treat it as shared with everyone you hand this URL to — see the README.
-          </span>
-        </label>
-
-        <div class="field-row">
-          <label class="field">
-            <span class="field__label">Board</span>
-            <input id="input-board" class="field__input" type="text" value="demo" required />
-          </label>
-          <label class="field">
-            <span class="field__label">Your name</span>
-            <input id="input-name" class="field__input" type="text" placeholder="Ada" required />
-          </label>
-        </div>
-
-        <!-- Sign-in is IDENTITY ONLY: it fills in your name and avatar for
-             presence and card attribution. It does NOT gate data access — that
-             still rides on the API key above. See the README. -->
-        <div class="signin">
-          <span class="signin__label">Or sign in for your name &amp; avatar</span>
+        <!-- Sign in to play. This is a real PKCE login; the token gates data
+             access. Tenant and namespace come from config.js; your display name
+             comes from the login. -->
+        <div class="signin" id="signin-block">
+          <span class="signin__label">Sign in to play</span>
           <div class="signin__buttons">
             <div id="google-signin"></div>
-            <button
-              id="github-signin"
-              class="button button--ghost signin__github"
-              type="button"
-              disabled
-              title="GitHub sign-in needs a token endpoint, which a static page cannot reach without leaking a client secret. It arrives with the tenant-issuer path — see the README."
-            >
+            <button id="github-signin" class="button button--ghost" type="button">
               Sign in with GitHub
             </button>
           </div>
+          <label class="field signin__name-field">
+            <span class="field__label">Board</span>
+            <input id="input-board" class="field__input" type="text" value="demo" />
+          </label>
           <p id="signed-in-as" class="signin__as" hidden></p>
         </div>
 
         <p id="connect-error" class="connect__error" hidden></p>
 
-        <button class="button button--primary button--wide" type="submit">Open board</button>
         <p class="connect__footnote">
           Open this page in a second window to watch two clients converge.
         </p>
-      </form>
+      </div>
     </section>
 
     <!-- The board. -->
