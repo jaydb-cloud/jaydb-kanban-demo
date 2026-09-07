@@ -76,18 +76,68 @@ Non-negotiable properties, each mirroring an existing decision:
 **Open question for you — authorization, not authentication.** Verifying *who*
 the user is does not decide *what* they may do. Options, cheapest first:
 
-- **(a) Any verified token of this tenant may read+write the namespace.** Matches
-  the demo decision ("any Google/GitHub account can play"). Simplest; no
-  per-user model. The token proves a real human logged in via the tenant's IdPs,
-  which is already stronger than a shared key.
-- **(b) Scope claims** (`docs:read` / `docs:write`) carried in the token and
-  enforced per method. Needs the issuer to mint scopes and the handler to check
-  them — this is where a real read-only tier would live.
-- **(c) Per-document ownership.** Out of scope; needs a data-model change.
+- **(a) Any verified token of this tenant may read+write the namespace.** Simplest;
+  no per-user model.
+- **(b) Key-prefix scope claims** — CHOSEN. See below.
+- **(c) Per-document ownership** — out of scope for this app. See "Why not (c)".
 
-I recommend **(a) for the demo**, with **(b) as the follow-up** that gives the
-API its first real read-only capability. (a) is a few lines; (b) is a small
-feature; (c) is a project.
+### Chosen: (b) key-prefix scopes
+
+A token carries scope claims naming a **capability + a key prefix**, and the
+gateway enforces them against the request path with a string prefix match — no
+storage read, decided entirely from the token:
+
+```
+scope: "read:boards/*  write:boards/demo/*"
+```
+
+- `read:<prefix>` gates GET and LIST; `write:<prefix>` gates PUT and DELETE.
+- A request for key `K` by method `M` is allowed iff some `<cap>:<prefix>` in the
+  token satisfies (cap covers M) AND (K starts with prefix, treating a trailing
+  `*` as "any suffix"). No match → 403.
+- The scopes a token *may* carry are bounded at registration by the app's
+  `scopes` array (already a field on the registration surface — see below), and
+  which ones a given login actually receives is the issuer's business.
+
+This is what your `aud: "/users/*", "/tasks/*"` instinct was reaching for. The
+correction is only in vocabulary: an **audience** names the resource server
+(`jaydb-data`); "may touch `users/*` and `tasks/*`" is a **scope**. So it is a
+claim beside the audience, not the audience itself:
+
+```
+aud:   "jaydb-data"
+scope: "read:users/*  write:users/*  read:tasks/*"
+```
+
+For the kanban demo this gives a real read-only tier at last: a stranger's login
+mints `read:boards/*` (watch the board), a player's mints
+`read:boards/* write:boards/*` (play). The API has never had a read-only
+credential before; this is it.
+
+### Why not (c) — and why it is the wrong tool *here* specifically
+
+(c) is per-**document** ownership: "Ada may edit `tasks/42` because
+`tasks/42.owner == Ada`." The distinguishing test between (b) and (c) is whether
+the rule depends on **which key** the caller touches (static, in the token) or on
+**who** the caller is versus what the record says (dynamic, per-record):
+
+| | decides from | cost |
+|---|---|---|
+| (b) prefix scope | the token + the request path | a string prefix match, no I/O |
+| (c) ownership | the token + a field inside the stored document | a read-before-write on every mutation, an owner field, and rules for who may create / transfer / delete ownership |
+
+(c) is not merely harder — it is a **different authorization model** the storage
+layer has no notion of, on the hot path. And the kanban board is the clean case
+*against* it: four players share one board and the whole point is that **anyone
+may move anyone's card** — that collaboration is a violation under ownership but
+correct under a shared `write:boards/demo/*` scope. So the demo wants (b) and
+would actively fight (c).
+
+(c) earns its cost only for an app whose documents genuinely have owners (a
+per-user notes app, say). That is a real future feature; it is just not this one,
+and bolting it on now would be building the expensive model the demo does not use.
+So: **(b) with key-prefix scopes, and (c) deferred as a named future tier**, not
+combined.
 
 ### 2. Tenant configuration (you, once)
 
@@ -132,10 +182,19 @@ registration; I cannot create or read those.
 
 ## What I need to proceed
 
-1. **Approve authorization option (a), (b), or (c).**
+1. **Authorization: (b) key-prefix scopes — CONFIRMED.** (c) deferred.
 2. **The tenant** to host it (recommend a fresh `kanban` org).
 3. **Google + GitHub OAuth client secrets** for the tenant IdP registration.
 
-With those, the work is: one server PR (the data-plane JWT path + tests, proven
-against a token that must be rejected as well as accepted), the tenant
-registration (you or me-with-secrets), and one client PR (PKCE flow).
+The exact admin API calls to register the client and the two IdPs live in
+[`scripts/setup-tenant.sh`](./scripts/setup-tenant.sh) — a runnable script that
+takes the org-admin key and the two OAuth secrets as environment variables, so
+setup is a single deterministic command rather than four hand-copied curls. The
+`scopes` and `audiences` fields it sends are already accepted by the registration
+surface, so this half needs **no** server change — only the gateway's scope
+*enforcement* (part 1) does.
+
+With those three, the work is: one server PR (the data-plane JWT path + prefix-
+scope enforcement + tests, proven against tokens that must be rejected as well as
+accepted), the tenant registration (the script), and one client PR (PKCE flow
+requesting the scopes for the signed-in user's tier).
