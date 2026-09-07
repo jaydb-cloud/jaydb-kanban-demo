@@ -32,7 +32,7 @@ jobs:
         # developer tooling and are not served.
         run: |
           mkdir -p _site
-          cp index.html styles.css jaydb.js store.js app.js config.js README.md _site/
+          cp index.html styles.css jaydb.js store.js app.js pkce.js config.js README.md _site/
 
       - name: Verify every asset index.html references was staged
         # An explicit copy list silently drops a file when one is added or
