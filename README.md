@@ -75,6 +75,37 @@ curl -s -o /dev/null -w '%{http_code}\n' -X PUT "$NS/probe" \
   -H 'If-Match: "<the etag>"' -d '{"v":2}'
 ```
 
+## Sign in with Google / GitHub
+
+The connect screen offers Google and GitHub sign-in. **Read what it does and does
+not do**, because the honest answer is not the obvious one.
+
+**Sign-in here is identity only.** It fills in your name and avatar for presence
+and card attribution. It does **not** authorize data access — reads and writes
+still ride on the API key above. Signing in and typing a name are the same thing
+to the server; the board cannot tell your users apart, and cannot scope a
+document to one of them. That is the property described in the security note
+above, and no client-side login changes it.
+
+**Google works from this static page. GitHub cannot.** Google Identity Services
+returns a signed ID token to client-side JavaScript with only a public client ID
+and no secret. GitHub's token endpoint requires a client secret even with PKCE
+(confirmed in GitHub's own docs), so a static page with no backend cannot
+complete a GitHub sign-in without shipping that secret — which would not be a
+secret. The GitHub button is therefore shown disabled, with a tooltip saying so.
+
+Enabling Google: create an OAuth 2.0 **Web application** client ID in the Google
+Cloud console, add this site's origin (e.g. `https://avivklas.github.io`) to
+*Authorized JavaScript origins*, and set `googleClientId` in
+[`config.js`](./config.js). The client ID is a public identifier, safe to commit.
+Leave it empty and the Google button is replaced by a hint.
+
+**Making sign-in actually gate data** — real per-user access, and GitHub working
+— requires the server to accept an OIDC token on the document API, which it does
+not yet do. That is a jaydb-cloud change, designed in
+[`DESIGN-oidc-data-plane.md`](./DESIGN-oidc-data-plane.md), not something the
+static page can do alone.
+
 ## Read this before you share the URL
 
 **The API key is readable by anyone who can open the page.** The app asks for it

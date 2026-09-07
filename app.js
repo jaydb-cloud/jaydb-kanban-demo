@@ -13,6 +13,7 @@
 
 import { JayDB, AuthError, JayDBError } from './jaydb.js';
 import { BoardStore, newId, PRESENCE_TTL_MS } from './store.js';
+import { CONFIG } from './config.js';
 
 const SETTINGS_KEY = 'jaydb_kanban_settings';
 const CLIENT_ID_KEY = 'jaydb_kanban_client_id';
@@ -28,6 +29,9 @@ const els = {
   apiKey: $('input-api-key'),
   board: $('input-board'),
   name: $('input-name'),
+  googleSignin: $('google-signin'),
+  githubSignin: $('github-signin'),
+  signedInAs: $('signed-in-as'),
 
   boardView: $('board'),
   boardName: $('board-name'),
@@ -575,7 +579,75 @@ setInterval(() => {
   if (store && !els.inspector.hidden) renderActivity();
 }, 30_000);
 
-// --- Boot ----------------------------------------------------------------
+// --- Sign-in (IDENTITY ONLY) ---------------------------------------------
+//
+// This fills in the user's name and avatar for presence and card attribution.
+// It does NOT authorize data access: reads and writes still ride on the API
+// key. A real "log in to reach the data" flow needs the server to accept an
+// OIDC token on the data plane — see DESIGN-oidc-data-plane.md and the README.
+//
+// Google works from a static page because Google Identity Services returns a
+// signed ID token to client-side JS with only a client ID (no secret). GitHub
+// cannot: its token endpoint requires a client secret even with PKCE, so a
+// static page cannot complete GitHub sign-in without a backend to hold that
+// secret. The GitHub button is therefore disabled here and arrives with the
+// tenant-issuer path.
+
+/** Decode a JWT payload without verifying it — fine for display-only fields. */
+function decodeJwtPayload(jwt) {
+  try {
+    const [, payload] = jwt.split('.');
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(decodeURIComponent(escape(json)));
+  } catch {
+    return null;
+  }
+}
+
+function applySignedInIdentity({ name, email, picture }) {
+  if (name) els.name.value = name;
+  els.signedInAs.hidden = false;
+  els.signedInAs.textContent = `Signed in as ${name || email}. This sets your name only — data still uses the API key.`;
+  if (picture) signedInPicture = picture;
+}
+
+let signedInPicture = null;
+
+function initGoogleSignin() {
+  if (!CONFIG.googleClientId) {
+    // No client ID configured: leave a hint instead of an empty slot.
+    els.googleSignin.innerHTML =
+      '<span class="signin__hint">Set googleClientId in config.js to enable Google sign-in.</span>';
+    return;
+  }
+  if (!window.google?.accounts?.id) {
+    // The GIS script has not loaded yet; try again shortly.
+    setTimeout(initGoogleSignin, 300);
+    return;
+  }
+
+  window.google.accounts.id.initialize({
+    client_id: CONFIG.googleClientId,
+    callback: (response) => {
+      const claims = decodeJwtPayload(response.credential);
+      if (claims) {
+        applySignedInIdentity({
+          name: claims.name,
+          email: claims.email,
+          picture: claims.picture,
+        });
+      }
+    },
+  });
+  window.google.accounts.id.renderButton(els.googleSignin, {
+    theme: 'filled_black',
+    size: 'large',
+    text: 'signin_with',
+    shape: 'pill',
+  });
+}
+
+
 
 (function boot() {
   const saved = loadSettings();
@@ -589,4 +661,5 @@ setInterval(() => {
     els.apiKey.value = saved.apiKey ?? '';
   }
   els.connect.hidden = false;
+  initGoogleSignin();
 })();
