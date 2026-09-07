@@ -41,6 +41,9 @@ const els = {
   googleSignin: $('google-signin'),
   githubSignin: $('github-signin'),
   signedInAs: $('signed-in-as'),
+  signinBlock: $('signin-block'),
+  signinLabel: $('signin-label'),
+  advancedConnect: $('advanced-connect'),
 
   boardView: $('board'),
   boardName: $('board-name'),
@@ -500,13 +503,27 @@ els.connectForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   els.connectError.hidden = true;
 
+  // This is the API-key / advanced path (the submit button lives inside the
+  // advanced disclosure). Tenant and namespace fall back to config so a user
+  // only needs to paste a key.
   const settings = {
-    baseUrl: els.baseUrl.value.trim().replace(/\/+$/, ''),
-    namespace: els.namespace.value.trim(),
+    baseUrl: (els.baseUrl.value.trim() || CONFIG.oidc?.issuer || '').replace(/\/+$/, ''),
+    namespace: els.namespace.value.trim() || CONFIG.oidc?.namespace || 'default',
     apiKey: els.apiKey.value.trim(),
-    boardId: els.board.value.trim(),
-    name: els.name.value.trim(),
+    boardId: els.board.value.trim() || 'demo',
+    name: els.name.value.trim() || 'Player',
   };
+
+  if (!settings.baseUrl) {
+    els.connectError.textContent = 'Enter a tenant URL (or configure oidc.issuer and sign in instead).';
+    els.connectError.hidden = false;
+    return;
+  }
+  if (!settings.apiKey) {
+    els.connectError.textContent = 'Enter an API key, or sign in above instead.';
+    els.connectError.hidden = false;
+    return;
+  }
 
   try {
     await connect(settings);
@@ -678,16 +695,25 @@ function initGoogleIdentityOnly() {
 
 function initSignin() {
   if (oidcEnabled()) {
-    // Real PKCE: both providers go through the tenant issuer via the idp param.
+    // Sign-in is the primary path: the token gates data. Lead with it, keep the
+    // API-key fields collapsed as an advanced escape hatch.
+    els.signinLabel.textContent = 'Sign in to play';
+    els.advancedConnect.open = false;
+
     els.googleSignin.innerHTML =
-      '<button type="button" class="button button--ghost">Sign in with Google</button>';
+      '<button type="button" class="button button--primary">Sign in with Google</button>';
     els.googleSignin.querySelector('button').addEventListener('click', () => startPkce('google'));
 
     els.githubSignin.disabled = false;
+    els.githubSignin.classList.remove('signin__github');
     els.githubSignin.title = 'Sign in with GitHub via your JayDB tenant';
     els.githubSignin.addEventListener('click', () => startPkce('github'));
   } else {
-    // Fallback: identity-only Google, GitHub stays disabled.
+    // No issuer configured: the API-key path is the only one that reaches data,
+    // and Google is identity-only. Lead with the API-key fields (open), and keep
+    // sign-in as the name/avatar helper it is in this mode.
+    els.signinLabel.textContent = 'Or sign in for your name & avatar (does not gate data)';
+    els.advancedConnect.open = true;
     initGoogleIdentityOnly();
   }
 }

@@ -21,53 +21,12 @@
           straight from the browser.
         </p>
 
-        <label class="field">
-          <span class="field__label">Tenant URL</span>
-          <input
-            id="input-base-url"
-            class="field__input"
-            type="url"
-            placeholder="https://acme.jaydb.com"
-            required
-          />
-          <span class="field__hint">Your tenant subdomain. The data API refuses the apex domain.</span>
-        </label>
-
-        <label class="field">
-          <span class="field__label">Namespace</span>
-          <input id="input-namespace" class="field__input" type="text" value="default" required />
-        </label>
-
-        <label class="field">
-          <span class="field__label">API key</span>
-          <input
-            id="input-api-key"
-            class="field__input field__input--mono"
-            type="password"
-            placeholder="jcloud_sec_…"
-          />
-          <span class="field__hint field__hint--warn">
-            Read-write, and readable by anything running on this page. Scope it to one namespace and
-            treat it as shared with everyone you hand this URL to — see the README.
-          </span>
-        </label>
-
-        <div class="field-row">
-          <label class="field">
-            <span class="field__label">Board</span>
-            <input id="input-board" class="field__input" type="text" value="demo" required />
-          </label>
-          <label class="field">
-            <span class="field__label">Your name</span>
-            <input id="input-name" class="field__input" type="text" placeholder="Ada" required />
-          </label>
-        </div>
-
-        <!-- Sign-in is IDENTITY ONLY: it fills in your name and avatar for
-             presence and card attribution. It does NOT gate data access — that
-             still rides on the API key above. See the README. -->
-        <div class="signin">
-          <span class="signin__label">Or sign in for your name &amp; avatar</span>
+        <!-- Primary path: sign in. With a tenant issuer configured, this is a
+             real PKCE login and the token gates data access. The board name and
+             your display name come from the login; tenant/namespace come from
+             config.js. -->
+        <div class="signin" id="signin-block">
+          <span class="signin__label" id="signin-label">Sign in to play</span>
           <div class="signin__buttons">
             <div id="google-signin"></div>
             <button
@@ -75,17 +34,70 @@
               class="button button--ghost signin__github"
               type="button"
               disabled
-              title="GitHub sign-in needs a token endpoint, which a static page cannot reach without leaking a client secret. It arrives with the tenant-issuer path — see the README."
+              title="GitHub sign-in arrives with the tenant-issuer path."
             >
               Sign in with GitHub
             </button>
           </div>
+          <label class="field signin__name-field">
+            <span class="field__label">Board</span>
+            <input id="input-board" class="field__input" type="text" value="demo" />
+          </label>
           <p id="signed-in-as" class="signin__as" hidden></p>
         </div>
 
+        <!-- Fallback / advanced: connect directly with a tenant URL + API key,
+             for a tenant with no OIDC issuer configured, or manual use. Shown
+             open when no issuer is set, collapsed when sign-in is the norm. -->
+        <details class="advanced" id="advanced-connect">
+          <summary class="advanced__summary">Advanced: connect with an API key</summary>
+
+          <label class="field">
+            <span class="field__label">Tenant URL</span>
+            <input
+              id="input-base-url"
+              class="field__input"
+              type="url"
+              placeholder="https://acme.jaydb.com"
+            />
+            <span class="field__hint">Your tenant subdomain. The data API refuses the apex domain.</span>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Namespace</span>
+            <input id="input-namespace" class="field__input" type="text" value="default" />
+          </label>
+
+          <label class="field">
+            <span class="field__label">API key</span>
+            <input
+              id="input-api-key"
+              class="field__input field__input--mono"
+              type="password"
+              placeholder="jcloud_sec_…"
+            />
+            <span class="field__hint field__hint--warn">
+              Read-write, and readable by anything running on this page. Shared with everyone you
+              hand this URL to — see the README.
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Your name</span>
+            <input id="input-name" class="field__input" type="text" placeholder="Ada" />
+          </label>
+
+          <button
+            id="connect-apikey"
+            class="button button--ghost button--wide"
+            type="submit"
+          >
+            Open board with API key
+          </button>
+        </details>
+
         <p id="connect-error" class="connect__error" hidden></p>
 
-        <button class="button button--primary button--wide" type="submit">Open board</button>
         <p class="connect__footnote">
           Open this page in a second window to watch two clients converge.
         </p>
