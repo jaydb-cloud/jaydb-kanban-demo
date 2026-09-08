@@ -65,8 +65,8 @@
 
         <div class="topbar__right">
           <div id="presence" class="presence" title="Clients that wrote a heartbeat recently"></div>
-          <span id="sync-pill" class="pill pill--idle">idle</span>
-          <button id="toggle-inspector" class="button button--ghost" type="button">Inspector</button>
+          <span id="sync-pill" class="pill pill--idle" title="Average API request latency">idle</span>
+          <button id="toggle-stats" class="button button--ghost" type="button">Stats</button>
           <button id="disconnect" class="button button--ghost" type="button">Leave</button>
         </div>
       </header>
@@ -77,22 +77,23 @@
         <div id="columns" class="columns"></div>
 
         <!-- Live view of what the app is actually doing over HTTP. -->
-        <aside id="inspector" class="inspector" hidden>
-          <section class="inspector__section">
-            <h2 class="inspector__heading">Requests</h2>
+        <aside id="stats-panel" class="stats-panel inspector" hidden>
+          <section class="stats-panel__section inspector__section">
+            <h2 class="stats-panel__heading inspector__heading">Requests</h2>
             <dl class="stats">
               <div class="stats__row"><dt>Reads</dt><dd id="stat-reads">0</dd></div>
               <div class="stats__row"><dt>Writes</dt><dd id="stat-writes">0</dd></div>
               <div class="stats__row"><dt>Deletes</dt><dd id="stat-deletes">0</dd></div>
               <div class="stats__row"><dt>Lists</dt><dd id="stat-lists">0</dd></div>
+              <div class="stats__row"><dt>Avg latency</dt><dd id="stat-avg-latency">—</dd></div>
               <div class="stats__row stats__row--accent">
                 <dt>Conflicts (412)</dt><dd id="stat-conflicts">0</dd>
               </div>
             </dl>
           </section>
 
-          <section class="inspector__section">
-            <h2 class="inspector__heading">Sync</h2>
+          <section class="stats-panel__section inspector__section">
+            <h2 class="stats-panel__heading inspector__heading">Sync</h2>
             <dl class="stats">
               <div class="stats__row"><dt>Passes</dt><dd id="stat-passes">0</dd></div>
               <div class="stats__row"><dt>Cards re-read</dt><dd id="stat-fetched">0</dd></div>
@@ -101,14 +102,14 @@
               </div>
               <div class="stats__row"><dt>Last pass</dt><dd id="stat-duration">—</dd></div>
             </dl>
-            <p class="inspector__note">
+            <p class="stats-panel__note inspector__note">
               A list returns every key's ETag, so a card is re-read only when its ETag moved.
               “Reads skipped” is that saving.
             </p>
           </section>
 
-          <section class="inspector__section">
-            <h2 class="inspector__heading">Activity</h2>
+          <section class="stats-panel__section inspector__section">
+            <h2 class="stats-panel__heading inspector__heading">Activity</h2>
             <ul id="activity" class="activity"></ul>
           </section>
         </aside>

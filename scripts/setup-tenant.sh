@@ -26,7 +26,7 @@ set -euo pipefail
 : "${GOOGLE_CLIENT_ID:?}" ; : "${GOOGLE_CLIENT_SECRET:?}"
 : "${GITHUB_CLIENT_ID:?}" ; : "${GITHUB_CLIENT_SECRET:?}"
 SITE_ORIGIN="${SITE_ORIGIN:-https://jaydb-cloud.github.io}"
-REDIRECT_URI="${SITE_ORIGIN}/jaydb-kanban/"
+REDIRECT_URI="${SITE_ORIGIN}/jaydb-kanban-demo/"
 
 auth=(-H "X-JayDB-API-Key: ${ADMIN_KEY}" -H "Content-Type: application/json")
 

@@ -48,10 +48,12 @@ const els = {
   syncPill: $('sync-pill'),
   banner: $('banner'),
   columns: $('columns'),
-  toggleInspector: $('toggle-inspector'),
+  toggleStats: $('toggle-stats') || $('toggle-inspector'),
+  toggleInspector: $('toggle-stats') || $('toggle-inspector'),
   disconnect: $('disconnect'),
 
-  inspector: $('inspector'),
+  statsPanel: $('stats-panel') || $('inspector'),
+  inspector: $('stats-panel') || $('inspector'),
   activity: $('activity'),
 
   cardDialog: $('card-dialog'),
@@ -114,9 +116,28 @@ function hideBanner() {
   els.banner.hidden = true;
 }
 
-function setPill(state, text) {
+function setPill(state, text, title = '') {
   els.syncPill.className = `pill pill--${state}`;
   els.syncPill.textContent = text;
+  if (title) {
+    els.syncPill.title = title;
+  } else {
+    els.syncPill.removeAttribute('title');
+  }
+}
+
+function updateLatencyPill() {
+  if (!store?.db?.stats) return;
+  const { avgLatencyMs, totalRequests } = store.db.stats;
+  if (avgLatencyMs) {
+    setPill(
+      'ok',
+      `${avgLatencyMs}ms avg`,
+      `Average API request latency: ${avgLatencyMs}ms (${totalRequests} requests)`,
+    );
+  } else {
+    setPill('ok', 'synced');
+  }
 }
 
 function escapeHtml(value) {
@@ -233,7 +254,7 @@ function renderActivity() {
 
 function renderStats() {
   if (!store) return;
-  const { reads, writes, deletes, lists, conflicts } = store.db.stats;
+  const { reads, writes, deletes, lists, conflicts, avgLatencyMs } = store.db.stats;
   const { passes, cardsFetched, cardsSkipped, lastSyncMs } = store.syncStats;
 
   $('stat-reads').textContent = reads;
@@ -241,10 +262,18 @@ function renderStats() {
   $('stat-deletes').textContent = deletes;
   $('stat-lists').textContent = lists;
   $('stat-conflicts').textContent = conflicts;
+  const latencyEl = $('stat-avg-latency');
+  if (latencyEl) {
+    latencyEl.textContent = avgLatencyMs ? `${avgLatencyMs} ms` : '—';
+  }
   $('stat-passes').textContent = passes;
   $('stat-fetched').textContent = cardsFetched;
   $('stat-skipped').textContent = cardsSkipped;
   $('stat-duration').textContent = lastSyncMs ? `${lastSyncMs} ms` : '—';
+
+  if (els.syncPill.classList.contains('pill--ok')) {
+    updateLatencyPill();
+  }
 }
 
 // --- Interaction ----------------------------------------------------------
@@ -500,9 +529,14 @@ function hideLoader() {
   els.signinBlock.hidden = false;
 }
 
-els.toggleInspector.addEventListener('click', () => {
-  els.inspector.hidden = !els.inspector.hidden;
-  els.boardView.classList.toggle('board--inspecting', !els.inspector.hidden);
+els.toggleStats?.addEventListener('click', () => {
+  els.statsPanel.hidden = !els.statsPanel.hidden;
+  els.boardView.classList.toggle('board--stats-open', !els.statsPanel.hidden);
+  els.boardView.classList.toggle('board--inspecting', !els.statsPanel.hidden);
+  if (!els.statsPanel.hidden) {
+    renderStats();
+    renderActivity();
+  }
 });
 
 els.disconnect.addEventListener('click', async () => {
@@ -542,7 +576,7 @@ async function connect(settings) {
   store.addEventListener('presence', renderPresence);
   store.addEventListener('activity', renderActivity);
   store.addEventListener('synced', () => {
-    setPill('ok', `synced ${store.syncStats.lastSyncMs}ms`);
+    updateLatencyPill();
     renderStats();
     hideBanner();
   });
@@ -573,7 +607,7 @@ async function connect(settings) {
   renderPresence();
   renderActivity();
   renderStats();
-  setPill('ok', 'synced');
+  updateLatencyPill();
 
   store.startPolling();
   saveSettings({ boardId: settings.boardId });
@@ -593,7 +627,7 @@ window.addEventListener('pagehide', () => {
 
 // Refresh relative timestamps without a sync pass.
 setInterval(() => {
-  if (store && !els.inspector.hidden) renderActivity();
+  if (store && !els.statsPanel.hidden) renderActivity();
 }, 30_000);
 
 // --- Sign-in (PKCE) -------------------------------------------------------

@@ -100,8 +100,18 @@ export class JayDB {
     this.apiKey = apiKey ?? null;
     this.getToken = getToken ?? null;
 
-    /** Request counters, surfaced in the demo's stats panel. */
-    this.stats = { reads: 0, writes: 0, deletes: 0, lists: 0, conflicts: 0 };
+    /** Request counters and latency metrics, surfaced in the demo's stats panel. */
+    this.stats = {
+      reads: 0,
+      writes: 0,
+      deletes: 0,
+      lists: 0,
+      conflicts: 0,
+      totalRequests: 0,
+      totalLatencyMs: 0,
+      lastLatencyMs: 0,
+      avgLatencyMs: 0,
+    };
   }
 
   /**
@@ -123,7 +133,15 @@ export class JayDB {
     return encoded ? `${base}/${encoded}` : base;
   }
 
+  #recordLatency(ms) {
+    this.stats.totalRequests++;
+    this.stats.totalLatencyMs += ms;
+    this.stats.lastLatencyMs = Math.round(ms);
+    this.stats.avgLatencyMs = Math.round(this.stats.totalLatencyMs / this.stats.totalRequests);
+  }
+
   async #request(method, url, { headers = {}, body, signal } = {}, key = null) {
+    const startedAt = performance.now();
     let response;
     try {
       response = await fetch(url, {
@@ -137,6 +155,7 @@ export class JayDB {
         mode: 'cors',
       });
     } catch (cause) {
+      this.#recordLatency(performance.now() - startedAt);
       if (cause?.name === 'AbortError') throw cause;
       // A CORS rejection is indistinguishable from a network failure here, and
       // it is by far the likelier cause during first-time setup.
@@ -146,6 +165,7 @@ export class JayDB {
         { key, body: String(cause?.message ?? cause) },
       );
     }
+    this.#recordLatency(performance.now() - startedAt);
     return response;
   }
 
