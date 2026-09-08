@@ -35,6 +35,18 @@
           <p id="signed-in-as" class="signin__as" hidden></p>
         </div>
 
+        <!-- Login / connection progress loader -->
+        <div class="signin-loader" id="signin-loader" hidden>
+          <div class="signin-loader__spinner" aria-hidden="true"></div>
+          <div class="signin-loader__content">
+            <h2 class="signin-loader__title" id="signin-loader-title">Signing in</h2>
+            <p id="signin-loader-step" class="signin-loader__step">Completing sign-in…</p>
+          </div>
+          <div class="signin-loader__bar" aria-hidden="true">
+            <div class="signin-loader__bar-inner"></div>
+          </div>
+        </div>
+
         <p id="connect-error" class="connect__error" hidden></p>
 
         <p class="connect__footnote">

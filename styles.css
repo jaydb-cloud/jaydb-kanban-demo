@@ -74,6 +74,31 @@ body {
   outline-offset: 2px;
 }
 
+.button:disabled,
+.button.is-loading {
+  opacity: 0.65;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.button--spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.spinner-icon {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
 .button--primary {
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
   border-color: transparent;
@@ -240,6 +265,89 @@ body {
 
 .signin__name-field {
   margin-top: 4px;
+}
+
+/* --- Signin Loader ------------------------------------------------------- */
+
+.signin-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 16px 16px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.signin-loader__spinner {
+  width: 42px;
+  height: 42px;
+  border: 3px solid rgba(99, 102, 241, 0.18);
+  border-top-color: var(--accent-primary);
+  border-right-color: var(--accent-secondary);
+  border-radius: 50%;
+  animation: spin 0.85s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+}
+
+.signin-loader__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.signin-loader__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.signin-loader__step {
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: opacity 0.2s ease;
+}
+
+.signin-loader__bar {
+  width: 100%;
+  max-width: 200px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.signin-loader__bar-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  border-radius: 999px;
+  animation: signin-progress 1.5s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes signin-progress {
+  0% {
+    left: -40%;
+    width: 30%;
+  }
+  50% {
+    left: 30%;
+    width: 50%;
+  }
+  100% {
+    left: 100%;
+    width: 30%;
+  }
 }
 
 .advanced {

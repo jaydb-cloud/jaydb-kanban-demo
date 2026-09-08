@@ -32,6 +32,10 @@ const $ = (id) => document.getElementById(id);
 const els = {
   connect: $('connect'),
   connectError: $('connect-error'),
+  signinBlock: $('signin-block'),
+  signinLoader: $('signin-loader'),
+  signinLoaderTitle: $('signin-loader-title'),
+  signinLoaderStep: $('signin-loader-step'),
   board: $('input-board'),
   googleSignin: $('google-signin'),
   githubSignin: $('github-signin'),
@@ -479,6 +483,23 @@ function reportError(error) {
 
 // --- Wiring ---------------------------------------------------------------
 
+function showLoader(title, step) {
+  els.signinBlock.hidden = true;
+  els.signinLoaderTitle.textContent = title;
+  els.signinLoaderStep.textContent = step;
+  els.signinLoader.hidden = false;
+  els.connectError.hidden = true;
+}
+
+function updateLoaderStep(step) {
+  els.signinLoaderStep.textContent = step;
+}
+
+function hideLoader() {
+  els.signinLoader.hidden = true;
+  els.signinBlock.hidden = false;
+}
+
 els.toggleInspector.addEventListener('click', () => {
   els.inspector.hidden = !els.inspector.hidden;
   els.boardView.classList.toggle('board--inspecting', !els.inspector.hidden);
@@ -488,11 +509,18 @@ els.disconnect.addEventListener('click', async () => {
   await store?.leave();
   store = null;
   pkceSignOut();
+  hideLoader();
+  resetSigninButtons();
   els.boardView.hidden = true;
   els.connect.hidden = false;
 });
 
 async function connect(settings) {
+  if (!els.signinLoader.hidden) {
+    els.signinLoaderTitle.textContent = 'Opening board';
+    updateLoaderStep('Connecting to JayDB…');
+  }
+
   // Authorized by the signed-in user's OIDC token: the server knows the user
   // and enforces read/write per key by the token's scopes.
   const db = new JayDB({
@@ -533,6 +561,11 @@ async function connect(settings) {
   // This is the first request, so it is also the credential and CORS check.
   await store.open();
   await store.heartbeat();
+
+  if (!els.signinLoader.hidden) {
+    updateLoaderStep('Loading board & syncing cards…');
+  }
+
   await store.sync();
   await store.loadActivity();
 
@@ -545,6 +578,7 @@ async function connect(settings) {
   store.startPolling();
   saveSettings({ boardId: settings.boardId });
 
+  hideLoader();
   els.connect.hidden = true;
   els.boardView.hidden = false;
 }
@@ -579,7 +613,32 @@ function connectContext() {
   };
 }
 
+function setButtonLoading(idp) {
+  const isGoogle = idp === 'google';
+  const googleBtn = els.googleSignin.querySelector('button');
+  const githubBtn = els.githubSignin;
+
+  if (googleBtn) googleBtn.disabled = true;
+  if (githubBtn) githubBtn.disabled = true;
+
+  if (isGoogle && googleBtn) {
+    googleBtn.classList.add('is-loading', 'button--spinner');
+    googleBtn.innerHTML = '<span class="spinner-icon" aria-hidden="true"></span> Redirecting to Google…';
+  } else if (!isGoogle && githubBtn) {
+    githubBtn.classList.add('is-loading', 'button--spinner');
+    githubBtn.innerHTML = '<span class="spinner-icon" aria-hidden="true"></span> Redirecting to GitHub…';
+  }
+}
+
+function resetSigninButtons() {
+  initSignin();
+  els.githubSignin.disabled = false;
+  els.githubSignin.classList.remove('is-loading', 'button--spinner');
+  els.githubSignin.textContent = 'Sign in with GitHub';
+}
+
 async function startPkce(idp) {
+  setButtonLoading(idp);
   try {
     await pkceBeginLogin({
       issuer: CONFIG.oidc.issuer,
@@ -591,6 +650,7 @@ async function startPkce(idp) {
     // beginLogin navigates away; nothing after this runs.
   } catch (error) {
     console.error(error);
+    resetSigninButtons();
     els.connectError.textContent = error?.message ?? String(error);
     els.connectError.hidden = false;
   }
@@ -611,22 +671,8 @@ function initSignin() {
     '<button type="button" class="button button--primary">Sign in with Google</button>';
   els.googleSignin.querySelector('button').addEventListener('click', () => startPkce('google'));
 
-  els.githubSignin.addEventListener('click', () => startPkce('github'));
+  els.githubSignin.onclick = () => startPkce('github');
 }
-
-// --- pagehide / timers ----------------------------------------------------
-
-// Withdraw presence on close so other clients drop the avatar promptly. Not
-// guaranteed to run, which is exactly why presence also expires on age.
-window.addEventListener('pagehide', () => {
-  if (!store) return;
-  navigator.sendBeacon?.('data:,');
-  store.leave();
-});
-
-setInterval(() => {
-  if (store && !els.inspector.hidden) renderActivity();
-}, 30_000);
 
 // --- Boot -----------------------------------------------------------------
 
@@ -634,15 +680,31 @@ setInterval(() => {
   const saved = loadSettings();
   if (saved?.boardId) els.board.value = saved.boardId;
 
+  const url = new URL(window.location.href);
+  const isCallback = url.searchParams.has('code') || url.searchParams.has('error');
+  const hasSession = pkceSignedIn();
+
   els.connect.hidden = false;
-  initSignin();
+
+  if (isCallback) {
+    showLoader('Signing in', 'Completing sign-in…');
+  } else if (hasSession) {
+    showLoader('Connecting', 'Restoring session…');
+  } else {
+    initSignin();
+  }
 
   // If we returned from a PKCE authorize redirect, finish the exchange and open
   // the board straight away using the token.
   if (CONFIG.oidc?.issuer && CONFIG.oidc?.clientId) {
     try {
-      const ctx = await pkceCompleteCallback({ clientId: CONFIG.oidc.clientId });
+      let ctx = null;
+      if (isCallback) {
+        ctx = await pkceCompleteCallback({ clientId: CONFIG.oidc.clientId });
+      }
+
       if (ctx) {
+        updateLoaderStep('Verifying authorization…');
         await pkceEnsureToken();
         const claims = pkceIdentityClaims();
         await connect({
@@ -651,9 +713,26 @@ setInterval(() => {
           boardId: ctx.boardId || 'demo',
           name: claims?.name || claims?.email || 'Player',
         });
+      } else if (hasSession) {
+        updateLoaderStep('Verifying authorization…');
+        const token = await pkceEnsureToken();
+        if (token) {
+          const claims = pkceIdentityClaims();
+          await connect({
+            baseUrl: CONFIG.oidc.issuer,
+            namespace: CONFIG.oidc.namespace,
+            boardId: (els.board.value || '').trim() || saved?.boardId || 'demo',
+            name: claims?.name || claims?.email || 'Player',
+          });
+        } else {
+          hideLoader();
+          initSignin();
+        }
       }
     } catch (error) {
       console.error(error);
+      hideLoader();
+      initSignin();
       els.connectError.textContent = error?.message ?? String(error);
       els.connectError.hidden = false;
     }
