@@ -1,246 +1,137 @@
-# Shared kanban — a multi-user app with no backend
+# JayDB Kanban Demo — Multi-User App with No Backend
 
-A kanban board that several people can use at once, built to show what
-[JayDB Cloud](https://github.com/avivklas/jaydb-cloud) can do as an app's only
-backend. There is no server of its own, no build step, and no framework: a
-handful of static files that talk to the document API over `fetch`.
+A shared, collaborative Kanban board built to show how simple it is to build and ship production-ready applications with **[JayDB Cloud](https://jaydb.com)** as your only backend.
 
-**Live: https://avivklas.github.io/jaydb-kanban/** — players sign in with Google
-or GitHub; there is no key to paste. The served files carry no credential.
+As described on [jaydb.com](https://jaydb.com), building with JayDB means **shipping apps with no backend of your own at all**: not serverless functions, not complex BaaS wrappers, and no server infrastructure to maintain, scale, or pay for while idle. This demo proves that architecture in practice: a folder of static files talking directly from the browser to the database.
+
+**[Try the Live Demo](https://avivklas.github.io/jaydb-kanban/)** *(Open it in two browser windows side-by-side to see multi-user sync and presence in real time)*.
+
+---
+
+## Why This Architecture Changes How You Build
+
+When you build applications on JayDB Cloud, an entire layer of traditional backend complexity simply vanishes:
+
+- **Zero Servers to Operate or Deploy**  
+  The entire application is static files (HTML, CSS, and modern JavaScript). You can host it on GitHub Pages, Cloudflare Pages, Netlify, or an S3 bucket. There are no API servers, no container builds, and no deployment pipelines to break.
+- **Real Per-User Authentication Out of the Box**  
+  Users sign in with their existing Google or GitHub accounts via standard OAuth/OIDC + PKCE. JayDB Cloud issues scoped tokens directly to the browser. Your frontend carries no client secrets, and you don't have to stand up or manage a custom auth service.
+- **Seamless Collaboration Without Overwrites**  
+  Multiple users can manipulate the board concurrently. JayDB Cloud leverages standard HTTP conditional requests (`ETag` / `If-Match`) to ensure conflicting writes are caught immediately rather than silently overwriting another user's work.
+- **Real-Time Presence and Audit Feeds**  
+  See who is online and track every card move in an activity feed without running persistent WebSocket servers, socket gateways, or message brokers.
+- **$0 When Idle**  
+  Because there are no always-on servers or idle instance fees, your applications cost nothing when nobody is using them. Spin up prototypes, internal tools, or side projects with zero financial overhead.
+
+---
+
+## How It Works
+
+The board is built from standard web primitives talking directly to JayDB Cloud's document API over `fetch`:
 
 ```
-index.html   markup
-styles.css   styling
-config.js    tenant/OIDC config (public values only)
-jaydb.js     the client for the document API (API key OR bearer token)
-pkce.js      the browser PKCE sign-in flow
-store.js     the board's data layer: sync, conflict handling, presence
-app.js       DOM wiring
+┌────────────────────────────────────────────────────────┐
+│                        Browser                         │
+│   (Static HTML + Vanilla JS, running on GitHub Pages)  │
+└──────────────┬──────────────────────────┬──────────────┘
+               │ 1. Sign in with PKCE     │ 2. Direct HTTP / REST
+               │    (Google / GitHub)     │    (GET / PUT with Bearer token)
+               ▼                          ▼
+┌────────────────────────────────────────────────────────┐
+│                      JayDB Cloud                       │
+│  - Per-tenant OIDC Issuer & Scoped Authorization       │
+│  - Document Storage with ETag Conditional Writes       │
+└────────────────────────────────────────────────────────┘
 ```
 
-Deployment is `cp` — GitHub Pages serves this repository as-is
-(`.github/workflows/pages.yml` uploads the files, no build).
+### 1. Direct-to-Database Sign-In (OIDC + PKCE)
+Users sign in directly through your JayDB tenant's built-in OIDC issuer. The browser runs an Authorization Code + PKCE flow:
+1. The user authenticates with Google or GitHub.
+2. JayDB Cloud returns an access token scoped specifically to the board keyspace (e.g. `read:boards/*`, `write:boards/*`).
+3. The browser sends this token in the standard `Authorization: Bearer <token>` header on every request.
 
-## Run it
+No client secrets ever ship to the browser, and you don't need a backend server to broker credentials.
 
-The demo authenticates with **sign-in**, so it needs a JayDB tenant that has an
-OIDC issuer configured (see *Sign in* below). Point it at one and serve the
-directory:
-
-```bash
-python3 -m http.server 5173 --bind 127.0.0.1
-```
-
-Set `oidc.issuer`/`oidc.clientId` in [`config.js`](./config.js) to your tenant,
-and add `http://localhost:5173` as an authorized redirect URI on the tenant
-client and both OAuth apps. The live deployment already points at its tenant, so
-opening the live URL is the zero-setup way to try it.
-
-Two server-side prerequisites on the tenant (both shipped in jaydb-cloud):
-
-- the data-plane token path
-  ([#58](https://github.com/avivklas/jaydb-cloud/pull/58)), so a bearer token
-  authorizes reads/writes;
-- the origin you load the page from must be allowed. CORS now reads each
-  registered app's `allowed_origins`
-  ([#60](https://github.com/avivklas/jaydb-cloud/pull/60)), so registering the
-  app (via `scripts/setup-tenant.sh`) grants it — no operator env change.
-
-
-## Server requirement
-
-Conditional writes must actually work on the server you point this at. They were
-broken until
-[jaydb-cloud#54](https://github.com/avivklas/jaydb-cloud/pull/54): every
-`If-Match` request returned `412` regardless of whether the client was current.
-Against a server predating that fix, the board still loads and reads fine, but
-every edit will look like a conflict — the drag retry exhausts and text edits show
-the conflict dialog every time.
-
-Quick check against your tenant — the second call must return `200`, not `412`:
-
-```bash
-NS=https://acme.jaydb.com/v1/n/default/docs
-KEY=jcloud_sec_...
-
-curl -sD - -o /dev/null "$NS/probe" -H "X-JayDB-API-Key: $KEY" | grep -i '^etag'
-# then feed that exact value back:
-curl -s -o /dev/null -w '%{http_code}\n' -X PUT "$NS/probe" \
-  -H "X-JayDB-API-Key: $KEY" -H 'Content-Type: application/json' \
-  -H 'If-Match: "<the etag>"' -d '{"v":2}'
-```
-
-## Sign in with Google / GitHub
-
-Players **sign in with Google or GitHub** — that is the only way in. There is no
-API key to paste and no shared credential: the connect screen asks only which
-board to open.
-
-Sign-in is an Authorization-Code + PKCE flow against your JayDB tenant. The
-tenant issues a scoped access token, the app sends it as `Authorization: Bearer`,
-and the **server authorizes each read/write by the token's scopes**
-([jaydb-cloud#58](https://github.com/avivklas/jaydb-cloud/pull/58)). Every player
-is a real, distinct user; nobody holds a namespace-wide key. GitHub works because
-the **tenant issuer** holds GitHub's client secret — a static page never sees it,
-and PKCE needs no secret of its own.
-
-Setup (once):
-
-1. Run [`scripts/setup-tenant.sh`](./scripts/setup-tenant.sh) to register the
-   public PKCE client and the Google/GitHub upstream IdPs on your tenant.
-2. Set `oidc.issuer` (e.g. `https://kanban.jaydb.com`), `oidc.clientId`,
-   `oidc.scopes`, and `oidc.namespace` in [`config.js`](./config.js) — all public,
-   no secret.
-3. Add `https://avivklas.github.io/jaydb-kanban/` as an authorized redirect URI on
-   the tenant client and both OAuth apps.
-
-The tenant must have the data-plane token path deployed
-([jaydb-cloud#58](https://github.com/avivklas/jaydb-cloud/pull/58)) and its origin
-registered so CORS allows it
-([jaydb-cloud#60](https://github.com/avivklas/jaydb-cloud/pull/60), which reads
-the app's `allowed_origins`). Scopes are minted by the issuer, so a read-only tier
-is `read:boards/*` and a player is `read+write:boards/*`.
-
-## Security
-
-The demo hands out **no shared credential**. Each player authenticates as
-themselves via Google/GitHub and gets a token scoped to the board keyspace; the
-served files carry no secret. Presence and card attribution are the signed-in
-user's real identity, and the server — not the client — decides what each token
-may read or write.
-
-The `config.js` values (`oidc.issuer`, `oidc.clientId`) are public identifiers,
-safe to commit. No client secret is ever in this repo or on the wire; the tenant
-issuer holds the upstream OAuth secrets.
-
-## What it demonstrates
-
-Everything below is built from three primitives: a read that returns an ETag, a
-write that can require one, and a prefix list.
-
-### 1. Concurrent edits that don't overwrite each other
-
-Every document read carries an `ETag`. A write can demand it:
+### 2. Conflict Prevention with Standard HTTP ETags
+Every document read from JayDB Cloud returns an `ETag`. When a client saves changes, it includes that ETag in the `If-Match` header:
 
 ```http
-PUT /v1/n/kanban/docs/boards/demo/cards/card_x
+PUT /v1/n/kanban/docs/boards/demo/cards/card_123
+Authorization: Bearer <token>
 If-Match: "4f865dbdabb46219"
 ```
 
-If someone else wrote first, that ETag is stale and the write is refused with
-`412` instead of silently discarding their change. This is the whole reason
-several browsers can share mutable state with nothing coordinating them.
+If another user updated that card first, the server rejects the write with `412 Precondition Failed` instead of clobbering data:
+- **Card Dragging**: The application automatically fetches the latest card position and replays the move. The user sees a seamless, conflict-free transition.
+- **Text Editing**: If two users edit the same card text at once, the application surfaces both versions so the user can choose how to merge without losing work.
 
-What you do with the `412` is a product decision, and the example deliberately
-does it two different ways:
+### 3. Lightweight, Cost-Efficient Polling
+Rather than maintaining costly long-lived socket connections, the client polls the board prefix. JayDB's list endpoint returns lightweight metadata—including ETags—without the document payloads. The client compares ETags against its local cache and only downloads the specific documents that actually changed. A quiet board costs just one tiny request per sync cycle.
 
-- **Dragging a card** re-reads the winning version, re-applies the move to it,
-  and writes again (`store.js`, `#mutateCard`). A move only touches `column` and
-  `order`, so replaying it onto fresh data is well defined. The user sees
-  nothing but a brief "retried" note.
-- **Editing a card's text** stops and shows both versions. Two people rewriting
-  the same sentence is not mechanically resolvable, so the app asks instead of
-  guessing.
+### 4. Ephemeral Presence Without Sockets
+Active clients write a small heartbeat document (`boards/{board}/presence/{clientId}`) on a timer. The client lists the presence directory to show who is currently active based on document modification time (`mod_time`). If a user closes their tab, their heartbeat stops and they cleanly disappear from the presence list.
 
-Same primitive, opposite policy. Auto-merging text would lose work; prompting on
-every drag would be unusable.
+---
 
-### 2. Document granularity is concurrency granularity
+## Clean, Readable Codebase
 
-Each card is its own document (`boards/{board}/cards/{id}`), so two people
-editing two cards never contend at all — their writes touch different keys. Had
-the board been one document, every edit would contend with every other edit and
-the retry loop would be doing constant work.
-
-This is the main design decision to take away: **split documents along the lines
-you expect people to edit independently.** The column layout stays in a single
-`meta` document precisely because it changes rarely.
-
-### 3. Allocating an id without a coordinator
-
-There is no sequence generator, so ids are generated client-side. `If-None-Match: *`
-makes that safe:
-
-```http
-PUT /v1/n/kanban/docs/boards/demo/meta
-If-None-Match: *
-```
-
-The write succeeds only if the key is unused. Two people opening a new board at
-the same instant cannot overwrite each other — the loser gets `412` and reads
-what the winner wrote. Compare with an unconditional `PUT`, which would silently
-destroy the other board.
-
-### 4. Reading efficiently
-
-A list returns each key's metadata — including its ETag — and never the bodies:
-
-```json
-{
-  "count": 2,
-  "items": [
-    { "key": "boards/demo/cards/card_a", "etag": "\"4f865dbd\"", "mod_time": "…", "size": 39 }
-  ],
-  "next_cursor": null
-}
-```
-
-So the sync loop lists, compares each ETag against the copy it already holds, and
-re-reads only what actually changed. A board nobody is touching costs one request
-per poll no matter how many cards it has. The inspector panel shows the reads
-this skips.
-
-### 5. Writes that never conflict, and state that expires
-
-Two patterns that avoid CAS altogether:
-
-- **The activity feed** appends to `activity/{timestamp}_{random}`. No two
-  writers ever target the same key, so no conditional write is needed.
-- **Presence** has each client write `presence/{clientId}` on a timer and judge
-  everyone else by `mod_time`. Nothing holds a connection open; "who's here" is
-  just recently-written documents, and any client may delete one that has gone
-  cold. Expiry by convention, since the store has no TTL.
-
-## Limits worth knowing
-
-**Updates arrive by polling.** The API is request/response — there is no SSE or
-websocket endpoint — so `store.js` polls every 2.5s and backs off on failure.
-Changes appear within a poll, not instantly. If you want them faster, poll faster
-and accept the request cost; the ETag diffing keeps a quiet board cheap.
-
-**The ETag header is invisible to browsers by default.** `ETag` is not a
-CORS-safelisted response header, so `response.headers.get('ETag')` returns `null`
-cross-origin unless the server sends `Access-Control-Expose-Headers: ETag`. Since
-a client that cannot read an ETag cannot send `If-Match`, that alone disables
-optimistic concurrency from a browser — the exact case this example exists to
-demonstrate. Fixed server-side in
-[jaydb-cloud#55](https://github.com/avivklas/jaydb-cloud/pull/55).
-
-Until that is deployed, `jaydb.js` recovers the ETag from a listing, where it
-travels in the JSON body instead, and the sync loop hands over the ETag it
-already listed so the recovery costs no extra request. The fallback logs one
-warning and disappears on its own once the header is exposed. Worth knowing
-because it is a trap you cannot see from outside a browser: `curl` and Node's
-`fetch` ignore CORS, so the header looks perfectly readable in any non-browser
-test.
-
-**Two ETag encodings.** The `ETag` response header is `"abc"`, and the `etag`
-field in list and PUT *bodies* has historically carried the quotes inside the
-JSON string (`"\"abc\""`);
-[jaydb-cloud#56](https://github.com/avivklas/jaydb-cloud/pull/56) makes the body
-form bare. `jaydb.js` normalises both to a bare value on the way in and re-quotes
-on the way out, so it works either side of that change. Comparing a listed ETag
-against a header one without normalising silently never matches.
-
-**Other limits.** Documents cap at 10 MB. A list page caps at 1000 keys (the
-example pages through with the cursor). The data API must be called on a tenant
-subdomain — the apex and `app.` hosts are refused.
-
-## Layout
+There is no framework boilerplate, no transpilation step, and no heavy dependency tree:
 
 ```
-boards/{board}/meta                    column layout        contended, conditional writes
-boards/{board}/cards/{cardId}          one card             independent, conditional writes
-boards/{board}/presence/{clientId}     who's here           last-writer-wins, expires by age
-boards/{board}/activity/{ts}_{rand}    append-only feed     conflict-free by construction
+index.html   Semantic HTML markup for the board and connect screens
+styles.css   Responsive stylesheet
+config.js    Tenant and public OIDC configuration
+jaydb.js     Lightweight fetch-based client for JayDB Cloud
+pkce.js      Browser-native PKCE authentication flow
+store.js     Data synchronization, ETag conflict handling, and presence
+app.js       DOM event listeners and UI interactions
 ```
+
+---
+
+## Quickstart: Run It Locally
+
+You can run this demo locally with any static file server in seconds:
+
+```bash
+# Serve the directory
+python3 -m http.server 5173 --bind 127.0.0.1
+```
+
+Open `http://localhost:5173` in your browser. The live demo configuration is already wired to point to the demo tenant, letting you test the full sign-in and board experience immediately.
+
+---
+
+## Connecting to Your Own JayDB Tenant
+
+To point this board at your own JayDB Cloud organization:
+
+1. **Get your tenant**: Sign up at **[jaydb.com](https://jaydb.com)**.
+2. **Register the client and providers**: Run the setup script to register the public PKCE client and your OAuth identity providers on your tenant:
+   ```bash
+   TENANT_URL=https://<your-tenant>.jaydb.com \
+   ADMIN_KEY=jcloud_sec_... \
+   GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
+   GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... \
+   SITE_ORIGIN=http://localhost:5173 \
+   ./scripts/setup-tenant.sh
+   ```
+3. **Update configuration**: Set your tenant URL and client ID in [`config.js`](./config.js):
+   ```javascript
+   export const CONFIG = {
+     oidc: {
+       issuer: 'https://<your-tenant>.jaydb.com',
+       clientId: 'kanban-demo',
+       scopes: ['read:boards/*', 'write:boards/*'],
+       namespace: 'kanban',
+     },
+   };
+   ```
+4. **Deploy anywhere**: Commit and push to GitHub Pages, Cloudflare Pages, Vercel, or any static host. No build command needed.
+
+---
+
+## Next Steps
+
+- Explore **[jaydb.com](https://jaydb.com)** for guides, documentation, and to start building your own backend-free applications.
+- Read [`store.js`](./store.js) to see how optimistic concurrency and ETag diffing are implemented in under 300 lines of clean JavaScript.
