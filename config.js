@@ -5,7 +5,7 @@
  *
  * To enable Google sign-in, create an OAuth 2.0 Client ID of type "Web
  * application" in the Google Cloud console, add this site's origin
- * (https://avivklas.github.io) to "Authorized JavaScript origins", and paste
+ * (https://jaydb-cloud.github.io) to "Authorized JavaScript origins", and paste
  * the client ID below. Leave it empty to hide the Google button.
  */
 export const CONFIG = {

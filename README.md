@@ -2,52 +2,30 @@
 
 A real-time, multi-user Kanban board built with **zero backend servers**.
 
-This demo shows how simple it is to build full applications on **[JayDB Cloud](https://jaydb.com)**. As featured on the [JayDB website](https://jaydb.com), you can ship apps with **no backend of your own at all**—no API servers, no custom auth services, and no databases to manage. Your app is just static files, and the browser talks directly to JayDB Cloud for both login and data.
+Built on **[JayDB Cloud](https://jaydb.com)**, this demo shows how simple it is to build collaborative web apps with **no backend of your own at all**—no API servers, no custom auth services, and no databases to manage. Your app is just a few static files; the browser talks directly to JayDB Cloud for login and data.
 
-👉 **[Try the Live Demo](https://avivklas.github.io/jaydb-kanban/)**  
+👉 **[Try the Live Demo](https://jaydb-cloud.github.io/jaydb-kanban-demo/)**  
 *(Tip: Open it in two browser windows side-by-side to watch cards, edits, and presence sync in real time.)*
 
 ---
 
-## What You Get
+## Why JayDB?
 
-- **Zero Backend to Maintain** — Ship your app as static HTML & JS anywhere (GitHub Pages, Cloudflare Pages, S3). No servers to patch, scale, or monitor.
-- **Built-in Per-User Auth** — Users sign in with Google or GitHub via standard PKCE. The browser receives a scoped token with zero client secrets exposed.
-- **Conflict-Free Collaboration** — Multiple people can edit and move cards simultaneously. Standard HTTP ETags (`If-Match`) prevent accidental overwrites.
-- **Live Presence Without WebSockets** — See who's active on the board using lightweight document heartbeats.
-- **$0 When Idle** — With no servers or instances running, side projects and prototypes cost $0 while idle.
+- **No backend to run** — Ship your app as static HTML & JS on GitHub Pages, Cloudflare Pages, or S3.
+- **Built-in per-user login** — Users sign in with Google or GitHub; JayDB Cloud handles tokens directly in the browser with zero client secrets exposed.
+- **Conflict-free collaboration** — Move cards and edit text together. Standard HTTP ETags prevent accidental overwrites.
+- **Live presence** — See who's online without WebSocket servers.
+- **$0 while idle** — No servers running means no idle hosting bills.
 
 ---
 
 ## How It Works
 
-Everything runs on standard browser `fetch` calls directly to JayDB Cloud:
+The browser communicates directly with JayDB Cloud using standard `fetch`:
 
-1. **Sign In**: The user authenticates with Google or GitHub. JayDB Cloud mints a scoped access token.
-2. **Direct Reads & Writes**: The browser reads and updates card documents directly:
-   ```http
-   PUT /v1/n/kanban/docs/boards/demo/cards/card_1
-   Authorization: Bearer <token>
-   If-Match: "<etag>"
-   ```
-   If someone else updated the card in the meantime, the write returns `412 Precondition Failed` so the app can safely replay or merge changes without losing data.
-3. **Smart Sync & Presence**: The board periodically checks for modified document metadata so it only downloads what actually changed, and writes a heartbeat document to announce who is online.
-
----
-
-## Simple, Readable Code
-
-No build tools, no bundlers, and no framework bloat—just pure vanilla JavaScript:
-
-```
-index.html   UI markup
-styles.css   Responsive styles
-config.js    Tenant configuration
-jaydb.js     Lightweight fetch client for JayDB Cloud
-pkce.js      Browser sign-in flow
-store.js     Data sync, conflict handling, and presence
-app.js       DOM interactions and drag-and-drop
-```
+1. **Sign In**: User signs in with Google or GitHub (PKCE). JayDB issues a scoped access token.
+2. **Direct Storage**: The browser reads and updates cards with standard HTTP requests (`GET` and `PUT`).
+3. **Sync & Presence**: The client polls for card changes and sends heartbeats to show who's active.
 
 ---
 
@@ -57,10 +35,10 @@ app.js       DOM interactions and drag-and-drop
 python3 -m http.server 5173 --bind 127.0.0.1
 ```
 
-Open `http://localhost:5173` to test the board immediately against the live demo tenant.
+Open `http://localhost:5173` in your browser.
 
 ---
 
 ## Build Your Own
 
-Ready to ship apps with no backend? Head over to **[jaydb.com](https://jaydb.com)** to learn more and get started for free.
+Visit **[jaydb.com](https://jaydb.com)** to learn more and get started for free.
