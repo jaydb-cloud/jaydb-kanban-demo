@@ -17,7 +17,7 @@
 #   ADMIN_KEY=jcloud_sec_...            \  # org-wide admin key or session token
 #   GOOGLE_CLIENT_ID=...  GOOGLE_CLIENT_SECRET=... \
 #   GITHUB_CLIENT_ID=...  GITHUB_CLIENT_SECRET=... \
-#   SITE_ORIGIN=https://avivklas.github.io \
+#   SITE_ORIGIN=https://jaydb-cloud.github.io \
 #   ./setup-tenant.sh
 set -euo pipefail
 
@@ -25,7 +25,7 @@ set -euo pipefail
 : "${ADMIN_KEY:?set ADMIN_KEY to an org-wide admin credential}"
 : "${GOOGLE_CLIENT_ID:?}" ; : "${GOOGLE_CLIENT_SECRET:?}"
 : "${GITHUB_CLIENT_ID:?}" ; : "${GITHUB_CLIENT_SECRET:?}"
-SITE_ORIGIN="${SITE_ORIGIN:-https://avivklas.github.io}"
+SITE_ORIGIN="${SITE_ORIGIN:-https://jaydb-cloud.github.io}"
 REDIRECT_URI="${SITE_ORIGIN}/jaydb-kanban/"
 
 auth=(-H "X-JayDB-API-Key: ${ADMIN_KEY}" -H "Content-Type: application/json")
