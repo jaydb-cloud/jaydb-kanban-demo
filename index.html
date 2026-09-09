@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>JayDB Kanban — a shared board with no backend</title>
+    <title>JayDB Kanban — Multi-User Board with Tree ACLs</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -11,11 +11,43 @@
          browser; nothing is baked into the files served to anyone else. -->
     <section id="connect" class="connect" hidden>
       <div id="connect-form" class="connect__card">
-        <h1 class="connect__title">Shared kanban</h1>
+        <div class="connect__header">
+          <span class="connect__badge">JayDB Cloud Demo</span>
+          <a
+            href="https://github.com/jaydb-cloud/jaydb-kanban-demo"
+            target="_blank"
+            rel="noopener"
+            class="connect__github"
+            title="View Source on GitHub"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            GitHub
+          </a>
+        </div>
+
+        <h1 class="connect__title">Shared Kanban with Tree ACLs</h1>
         <p class="connect__lede">
-          A static page — no server, no build step. Every card is a document read and written
-          straight from the browser.
+          A real-time collaborative board built with <strong>zero custom backend servers</strong>.
+          Demonstrates fine-grained <strong>Tree Path Ownership</strong> (<code>boards/{id}/**</code>) and
+          <strong>stateless signed invites</strong> powered directly by JayDB Cloud.
         </p>
+
+        <div class="connect__features">
+          <div class="connect__feature-item">
+            <span class="connect__feature-icon">🌳</span>
+            <div><strong>Tree Path Ownership:</strong> Board creators own their subtree and can invite other users.</div>
+          </div>
+          <div class="connect__feature-item">
+            <span class="connect__feature-icon">🔐</span>
+            <div><strong>Stateless Delegation:</strong> Share boards with Read-Only or Read &amp; Write access via signed links.</div>
+          </div>
+          <div class="connect__feature-item">
+            <span class="connect__feature-icon">⚡</span>
+            <div><strong>Zero S3 Calls for ACLs:</strong> Permissions evaluated in-memory with sub-millisecond latency.</div>
+          </div>
+        </div>
 
         <!-- Sign in to play. This is a real PKCE login; the token gates data
              access. Tenant and namespace come from config.js; your display name
@@ -29,8 +61,9 @@
             </button>
           </div>
           <label class="field signin__name-field">
-            <span class="field__label">Board</span>
-            <input id="input-board" class="field__input" type="text" value="demo" />
+            <span class="field__label">Board Name</span>
+            <input id="input-board" class="field__input" type="text" value="demo" placeholder="e.g. demo, sprint-14, marketing" />
+            <span class="field__hint">Enter any board name to open or create it as Owner, or paste an invite link.</span>
           </label>
           <p id="signed-in-as" class="signin__as" hidden></p>
         </div>
@@ -50,8 +83,18 @@
         <p id="connect-error" class="connect__error" hidden></p>
 
         <p class="connect__footnote">
-          Open this page in a second window to watch two clients converge.
+          Open this page in a second window to watch two clients converge in real time.
         </p>
+
+        <div class="connect__footer">
+          <a href="https://github.com/jaydb-cloud/jaydb-kanban-demo" target="_blank" rel="noopener" class="connect__link">
+            Source Code on GitHub ↗
+          </a>
+          <span>·</span>
+          <a href="https://jaydb.com" target="_blank" rel="noopener" class="connect__link">
+            JayDB Cloud ↗
+          </a>
+        </div>
       </div>
     </section>
 
@@ -59,6 +102,11 @@
     <main id="board" class="board" hidden>
       <header class="topbar">
         <div class="topbar__identity">
+          <div class="topbar__brand">
+            <a href="https://jaydb.com" target="_blank" rel="noopener" class="topbar__logo">JayDB</a>
+            <span class="topbar__divider">/</span>
+            <span class="topbar__app">Kanban</span>
+          </div>
           <h1 id="board-name" class="topbar__title">board</h1>
           <span id="role-badge" class="role-badge" title="Your permission role on this board">Owner</span>
           <span id="board-key" class="topbar__key"></span>
@@ -69,6 +117,18 @@
           <span id="sync-pill" class="pill pill--idle" title="Average API request latency">idle</span>
           <button id="open-invite" class="button button--primary" type="button" hidden>Invite</button>
           <button id="toggle-stats" class="button button--ghost" type="button">Stats</button>
+          <a
+            href="https://github.com/jaydb-cloud/jaydb-kanban-demo"
+            target="_blank"
+            rel="noopener"
+            class="button button--ghost topbar__github"
+            title="View source on GitHub"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="vertical-align: -2px; margin-right: 4px;">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            GitHub
+          </a>
           <button id="disconnect" class="button button--ghost" type="button">Leave</button>
         </div>
       </header>
