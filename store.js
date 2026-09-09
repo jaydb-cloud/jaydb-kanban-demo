@@ -21,7 +21,7 @@
  * documents whose ETag actually moved get re-read.
  */
 
-import { ConflictError, NotFoundError, AuthError } from './jaydb-cloud-sdk.js';
+import { ConflictError, NotFoundError, AuthError } from '@jaydb/cloud';
 
 /** A presence record older than this is treated as gone. */
 const PRESENCE_TTL_MS = 30_000;

@@ -24,7 +24,7 @@ import {
   ensureToken as pkceEnsureToken,
   currentToken as pkceCurrentToken,
   signOut as pkceSignOut,
-} from './jaydb-cloud-sdk.js';
+} from '@jaydb/cloud';
 import { BoardStore, newId, PRESENCE_TTL_MS } from './store.js';
 import { CONFIG } from './config.js';
 

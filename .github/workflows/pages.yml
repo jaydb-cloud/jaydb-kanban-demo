@@ -27,32 +27,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch minimized SDK distribution
+        run: |
+          chmod +x scripts/fetch-sdk.sh
+          ./scripts/fetch-sdk.sh
+
       - name: Stage the site
         # Copy only what the browser needs. dev.sh and the workflow itself are
         # developer tooling and are not served.
         run: |
           mkdir -p _site
-          cp index.html styles.css jaydb-cloud-sdk.js store.js app.js config.js README.md _site/
+          cp index.html styles.css jaydb-cloud.esm.min.js store.js app.js config.js README.md _site/
 
       - name: Verify every asset index.html references was staged
         # An explicit copy list silently drops a file when one is added or
-        # renamed -- the first deploy of this workflow shipped with app.js
-        # missing, so the page loaded and did nothing. Fail the build instead.
+        # renamed -- fail the build instead.
         run: |
           missing=0
-          # Local (non-URL, non-anchor) src/href targets referenced by the page.
-          refs=$(grep -oE '(src|href)="\./[^"]+"' index.html \
-                 | sed -E 's/.*"\.\/([^"]+)".*/\1/' | sort -u)
-          echo "referenced: $(echo "$refs" | tr '\n' ' ')"
-          for ref in $refs; do
+          for ref in $(grep -oE '("\./[^"]+")' index.html | sed -E 's/.*"\.\/([^"]+)".*/\1/' | sort -u); do
             if [ ! -f "_site/$ref" ]; then
               echo "::error::index.html references $ref but it was not staged into _site/"
               missing=1
             fi
           done
-          # The entry module must be present and must be able to resolve its imports.
-          for imported in $(grep -oE "from '\./[^']+'" *.js | sed -E "s/.*'\.\/([^']+)'.*/\1/" | sort -u); do
-            if [ ! -f "_site/$imported" ]; then
+          # The entry module must be present and must be able to resolve its local imports.
+          for imported in $(grep -oE "from '\./[^']+'" *.js 2>/dev/null | sed -E "s/.*'\.\/([^']+)'.*/\1/" | sort -u); do
+            if [ -n "$imported" ] && [ ! -f "_site/$imported" ]; then
               echo "::error::a module imports $imported but it was not staged into _site/"
               missing=1
             fi
