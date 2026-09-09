@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JayDB Kanban — Multi-User Board with Tree ACLs</title>
     <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@jaydb/cloud": "./jaydb-cloud.esm.min.js",
+          "./jaydb-cloud-sdk.js": "./jaydb-cloud.esm.min.js"
+        }
+      }
+    </script>
   </head>
   <body>
     <!-- Setup. Credentials are entered here at runtime and kept in this
@@ -291,13 +299,6 @@
       </div>
     </dialog>
 
-    <script type="importmap">
-      {
-        "imports": {
-          "@jaydb/cloud": "./jaydb-cloud.esm.min.js"
-        }
-      }
-    </script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

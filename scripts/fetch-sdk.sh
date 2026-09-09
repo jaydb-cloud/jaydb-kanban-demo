@@ -22,3 +22,12 @@ else
   echo "ERROR: Failed to fetch ${SDK_DIST_URL} and no local build found." >&2
   exit 1
 fi
+
+cat << 'EOF' > "${DIR}/jaydb-cloud-sdk.js"
+/**
+ * @deprecated Use '@jaydb/cloud' or './jaydb-cloud.esm.min.js' directly.
+ * Maintained for backward compatibility with cached clients.
+ */
+export * from './jaydb-cloud.esm.min.js';
+EOF
+
