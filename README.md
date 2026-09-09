@@ -21,7 +21,7 @@ Built on **[JayDB Cloud](https://jaydb.com)**, this demo shows how simple it is 
 
 ## How It Works
 
-The browser communicates directly with JayDB Cloud using the official **[JayDB Cloud Frontend SDK](https://github.com/avivklas/jaydb-cloud-sdk)** (`jaydb-cloud-sdk.js`):
+The browser communicates directly with JayDB Cloud using the official **[JayDB Cloud Frontend SDK](https://github.com/avivklas/jaydb-cloud-sdk)** (`@jaydb/cloud` via native importmap):
 
 1. **Sign In**: User signs in with Google or GitHub (PKCE via `Auth`). JayDB Cloud issues a scoped access token without client secrets.
 2. **Direct Storage**: The browser reads and updates cards with optimistic concurrency control (`db.get` and `db.put` with `ifMatch` ETags via `JayDB`).
