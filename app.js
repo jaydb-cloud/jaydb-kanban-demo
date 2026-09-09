@@ -14,6 +14,7 @@
 import { JayDB, AuthError, JayDBError } from './jaydb.js';
 import { BoardStore, newId, PRESENCE_TTL_MS } from './store.js';
 import { CONFIG } from './config.js';
+import { signBoardInvite, verifyBoardInvite } from './treeacl.js';
 import {
   beginLogin as pkceBeginLogin,
   completeLoginIfCallback as pkceCompleteCallback,
@@ -26,6 +27,7 @@ import {
 
 const SETTINGS_KEY = 'jaydb_kanban_settings';
 const CLIENT_ID_KEY = 'jaydb_kanban_client_id';
+const BOARDS_REGISTRY_KEY = 'jaydb_kanban_boards';
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,14 +45,24 @@ const els = {
 
   boardView: $('board'),
   boardName: $('board-name'),
+  roleBadge: $('role-badge'),
   boardKey: $('board-key'),
   presence: $('presence'),
   syncPill: $('sync-pill'),
   banner: $('banner'),
   columns: $('columns'),
+  openInvite: $('open-invite'),
   toggleStats: $('toggle-stats') || $('toggle-inspector'),
   toggleInspector: $('toggle-stats') || $('toggle-inspector'),
   disconnect: $('disconnect'),
+
+  inviteDialog: $('invite-dialog'),
+  inviteResult: $('invite-result'),
+  inviteLinkInput: $('invite-link-input'),
+  inviteCopyBtn: $('invite-copy-btn'),
+  inviteCopyFeedback: $('invite-copy-feedback'),
+  inviteCancel: $('invite-cancel'),
+  inviteGenerateBtn: $('invite-generate-btn'),
 
   statsPanel: $('stats-panel') || $('inspector'),
   inspector: $('stats-panel') || $('inspector'),
@@ -77,7 +89,31 @@ let store = null;
 let editingCardId = null;
 let pendingConflict = null;
 
-// --- Settings -------------------------------------------------------------
+// --- Settings & Board Registry --------------------------------------------
+
+function getBoardMemberships() {
+  try {
+    return JSON.parse(localStorage.getItem(BOARDS_REGISTRY_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function getBoardMembership(boardId) {
+  const all = getBoardMemberships();
+  return all[boardId] ?? null;
+}
+
+function saveBoardMembership(boardId, role, inviter = null) {
+  const all = getBoardMemberships();
+  all[boardId] = {
+    boardId,
+    role: role || 'own',
+    inviter,
+    updatedAt: Date.now(),
+  };
+  localStorage.setItem(BOARDS_REGISTRY_KEY, JSON.stringify(all));
+}
 //
 // The API key lives in localStorage for this browser only. That keeps it out of
 // the served files and out of the URL, which is the most a page with no backend
@@ -181,8 +217,29 @@ function renderBoard() {
   els.boardName.textContent = store.meta.name ?? store.boardId;
   els.boardKey.textContent = `${store.cardsPrefix}*`;
 
+  // Update role badge and invite button
+  if (els.roleBadge) {
+    els.roleBadge.className = `role-badge role-badge--${store.role}`;
+    if (store.role === 'own') {
+      els.roleBadge.textContent = 'Owner';
+      els.roleBadge.title = 'You own this board and can invite members';
+    } else if (store.role === 'write') {
+      els.roleBadge.textContent = 'Editor';
+      els.roleBadge.title = 'You have read-write access to this board';
+    } else {
+      els.roleBadge.textContent = 'Read-Only';
+      els.roleBadge.title = 'You have view-only access to this board';
+    }
+  }
+
+  if (els.openInvite) {
+    els.openInvite.hidden = !store.canAdmin();
+  }
+
   const columns = store.meta.columns ?? [];
   els.columns.style.setProperty('--column-count', String(columns.length));
+
+  const canWrite = store.canWrite();
 
   els.columns.innerHTML = columns
     .map((column) => {
@@ -190,26 +247,27 @@ function renderBoard() {
       return `
         <section class="column" data-column="${escapeHtml(column.id)}">
           <header class="column__header">
-            <h2 class="column__title" data-rename="${escapeHtml(column.id)}" title="Click to rename">
+            <h2 class="column__title${canWrite ? '' : ' column__title--readonly'}" data-rename="${canWrite ? escapeHtml(column.id) : ''}" title="${canWrite ? 'Click to rename' : ''}">
               ${escapeHtml(column.title)}
             </h2>
             <span class="column__count">${cards.length}</span>
           </header>
           <div class="column__drop" data-drop="${escapeHtml(column.id)}">
-            ${cards.map(renderCard).join('')}
+            ${cards.map((c) => renderCard(c, canWrite)).join('')}
           </div>
+          ${canWrite ? `
           <button class="column__add" type="button" data-add="${escapeHtml(column.id)}">
             + Add card
-          </button>
+          </button>` : ''}
         </section>`;
     })
     .join('');
 }
 
-function renderCard(record) {
+function renderCard(record, canWrite = true) {
   const { id, data, etag } = record;
   return `
-    <article class="card" draggable="true" data-card="${escapeHtml(id)}">
+    <article class="card${canWrite ? '' : ' card--readonly'}" draggable="${canWrite}" data-card="${escapeHtml(id)}">
       <h3 class="card__title">${escapeHtml(data.title)}</h3>
       ${data.notes ? `<p class="card__notes">${escapeHtml(data.notes)}</p>` : ''}
       <footer class="card__footer">
@@ -290,6 +348,10 @@ els.columns.addEventListener('click', async (event) => {
 });
 
 async function addCard(column) {
+  if (!store?.canWrite()) {
+    showBanner('You have read-only access to this board.', 'warn');
+    return;
+  }
   const title = prompt('Card title');
   if (!title?.trim()) return;
 
@@ -303,6 +365,7 @@ async function addCard(column) {
 }
 
 async function renameColumn(columnId) {
+  if (!store?.canWrite()) return;
   const column = store.meta.columns.find((c) => c.id === columnId);
   const title = prompt('Column name', column?.title ?? '');
   if (!title?.trim() || title === column?.title) return;
@@ -327,11 +390,21 @@ function openCard(id) {
   if (!record) return;
 
   editingCardId = id;
+  const canWrite = store.canWrite();
+
   els.cardTitle.value = record.data.title ?? '';
+  els.cardTitle.readOnly = !canWrite;
   els.cardNotes.value = record.data.notes ?? '';
+  els.cardNotes.readOnly = !canWrite;
   els.cardMeta.textContent =
     `${store.cardKey(id)} · ETag ${record.etag?.slice(0, 12) ?? '?'} · ` +
     `last touched by ${record.data.updatedBy ?? 'unknown'} ${relativeTime(record.data.updatedAt)}`;
+
+  els.cardDelete.hidden = !canWrite;
+  const saveBtn = els.cardForm.querySelector('button[type="submit"]');
+  if (saveBtn) saveBtn.hidden = !canWrite;
+  els.cardCancel.textContent = canWrite ? 'Cancel' : 'Close';
+
   els.cardDialog.showModal();
 }
 
@@ -370,6 +443,10 @@ els.cardDelete.addEventListener('click', async () => {
 let draggingId = null;
 
 els.columns.addEventListener('dragstart', (event) => {
+  if (!store?.canWrite()) {
+    event.preventDefault();
+    return;
+  }
   const card = event.target.closest('[data-card]');
   if (!card) return;
   draggingId = card.dataset.card;
@@ -549,7 +626,7 @@ els.disconnect.addEventListener('click', async () => {
   els.connect.hidden = false;
 });
 
-async function connect(settings) {
+async function connect(settings, role = 'own') {
   if (!els.signinLoader.hidden) {
     els.signinLoaderTitle.textContent = 'Opening board';
     updateLoaderStep('Connecting to JayDB…');
@@ -566,7 +643,7 @@ async function connect(settings) {
   store = new BoardStore(db, settings.boardId, {
     clientId: clientId(),
     name: settings.name,
-  });
+  }, role);
 
   store.addEventListener('meta', renderBoard);
   store.addEventListener('cards', () => {
@@ -594,6 +671,7 @@ async function connect(settings) {
 
   // This is the first request, so it is also the credential and CORS check.
   await store.open();
+  saveBoardMembership(settings.boardId, store.role);
   await store.heartbeat();
 
   if (!els.signinLoader.hidden) {
@@ -610,11 +688,72 @@ async function connect(settings) {
   updateLatencyPill();
 
   store.startPolling();
-  saveSettings({ boardId: settings.boardId });
+  saveSettings({ boardId: settings.boardId, role: store.role });
 
   hideLoader();
   els.connect.hidden = true;
   els.boardView.hidden = false;
+}
+
+// --- Invite Dialog (Tree ACL) ---------------------------------------------
+
+if (els.openInvite) {
+  els.openInvite.addEventListener('click', () => {
+    if (!store?.canAdmin()) return;
+    if (els.inviteResult) els.inviteResult.hidden = true;
+    if (els.inviteCopyFeedback) els.inviteCopyFeedback.hidden = true;
+    if (els.inviteLinkInput) els.inviteLinkInput.value = '';
+    els.inviteDialog?.showModal();
+  });
+}
+
+if (els.inviteCancel) {
+  els.inviteCancel.addEventListener('click', () => {
+    els.inviteDialog?.close();
+  });
+}
+
+if (els.inviteGenerateBtn) {
+  els.inviteGenerateBtn.addEventListener('click', async () => {
+    const roleEl = document.querySelector('input[name="invite-role"]:checked');
+    const selectedRole = roleEl?.value || 'read';
+
+    try {
+      const token = await signBoardInvite({
+        boardId: store.boardId,
+        role: selectedRole,
+        inviterName: store.identity.name,
+      });
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('board', store.boardId);
+      url.searchParams.set('invite', token);
+
+      if (els.inviteLinkInput) els.inviteLinkInput.value = url.toString();
+      if (els.inviteResult) els.inviteResult.hidden = false;
+      if (els.inviteCopyFeedback) els.inviteCopyFeedback.hidden = true;
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate invite token: ' + (err?.message || err));
+    }
+  });
+}
+
+if (els.inviteCopyBtn) {
+  els.inviteCopyBtn.addEventListener('click', async () => {
+    if (!els.inviteLinkInput?.value) return;
+    try {
+      await navigator.clipboard.writeText(els.inviteLinkInput.value);
+      if (els.inviteCopyFeedback) els.inviteCopyFeedback.hidden = false;
+      setTimeout(() => {
+        if (els.inviteCopyFeedback) els.inviteCopyFeedback.hidden = true;
+      }, 3000);
+    } catch {
+      els.inviteLinkInput.select();
+      document.execCommand('copy');
+      if (els.inviteCopyFeedback) els.inviteCopyFeedback.hidden = false;
+    }
+  });
 }
 
 // Withdraw presence on close so other clients drop the avatar promptly. Not
@@ -631,12 +770,6 @@ setInterval(() => {
 }, 30_000);
 
 // --- Sign-in (PKCE) -------------------------------------------------------
-//
-// The only way in: a real Authorization-Code + PKCE login against the JayDB
-// tenant. The access token it yields is sent as Authorization: Bearer and the
-// server authorizes by its scopes (jaydb-cloud#58). Tenant, namespace and scopes
-// come from config.js; the board name comes from the field, the display name
-// from the login.
 
 function connectContext() {
   // Values to restore after the authorize redirect returns.
@@ -718,6 +851,31 @@ function initSignin() {
   const isCallback = url.searchParams.has('code') || url.searchParams.has('error');
   const hasSession = pkceSignedIn();
 
+  const inviteParam = url.searchParams.get('invite');
+  const boardParam = url.searchParams.get('board');
+
+  let activeBoard = boardParam || (els.board.value || '').trim() || saved?.boardId || 'demo';
+  let activeRole = 'own';
+
+  if (inviteParam) {
+    const verified = await verifyBoardInvite(inviteParam);
+    if (verified) {
+      activeBoard = verified.boardId;
+      activeRole = verified.role;
+      els.board.value = verified.boardId;
+      saveBoardMembership(verified.boardId, verified.role, verified.inviter);
+      url.searchParams.delete('invite');
+      window.history.replaceState({}, document.title, url.toString());
+    } else {
+      showBanner('Invalid or expired invite link.', 'warn');
+    }
+  } else {
+    const existing = getBoardMembership(activeBoard);
+    if (existing?.role) {
+      activeRole = existing.role;
+    }
+  }
+
   els.connect.hidden = false;
 
   if (isCallback) {
@@ -744,9 +902,9 @@ function initSignin() {
         await connect({
           baseUrl: ctx.baseUrl || CONFIG.oidc.issuer,
           namespace: ctx.namespace || CONFIG.oidc.namespace,
-          boardId: ctx.boardId || 'demo',
+          boardId: ctx.boardId || activeBoard,
           name: claims?.name || claims?.email || 'Player',
-        });
+        }, activeRole);
       } else if (hasSession) {
         updateLoaderStep('Verifying authorization…');
         const token = await pkceEnsureToken();
@@ -755,9 +913,9 @@ function initSignin() {
           await connect({
             baseUrl: CONFIG.oidc.issuer,
             namespace: CONFIG.oidc.namespace,
-            boardId: (els.board.value || '').trim() || saved?.boardId || 'demo',
+            boardId: activeBoard,
             name: claims?.name || claims?.email || 'Player',
-          });
+          }, activeRole);
         } else {
           hideLoader();
           initSignin();

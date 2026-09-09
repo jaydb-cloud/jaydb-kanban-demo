@@ -866,3 +866,103 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Tree ACL & Role Badges --------------------------------------------- */
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.role-badge--own {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.role-badge--write {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.role-badge--read {
+  background: rgba(156, 163, 175, 0.15);
+  color: #d1d5db;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.invite-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.invite-role-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.invite-role-option:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-card-hover);
+}
+
+.invite-role-option input[type="radio"] {
+  margin-top: 3px;
+}
+
+.invite-role-option__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.invite-role-option__info strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.invite-role-option__info span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.invite-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.field__input--mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.invite-feedback {
+  font-size: 12px;
+  color: var(--success);
+  margin-top: 4px;
+}
+
+.card--readonly {
+  cursor: pointer;
+}
+
+.column__title--readonly {
+  cursor: default !important;
+}

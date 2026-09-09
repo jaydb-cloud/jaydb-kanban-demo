@@ -60,12 +60,14 @@
       <header class="topbar">
         <div class="topbar__identity">
           <h1 id="board-name" class="topbar__title">board</h1>
+          <span id="role-badge" class="role-badge" title="Your permission role on this board">Owner</span>
           <span id="board-key" class="topbar__key"></span>
         </div>
 
         <div class="topbar__right">
           <div id="presence" class="presence" title="Clients that wrote a heartbeat recently"></div>
           <span id="sync-pill" class="pill pill--idle" title="Average API request latency">idle</span>
+          <button id="open-invite" class="button button--primary" type="button" hidden>Invite</button>
           <button id="toggle-stats" class="button button--ghost" type="button">Stats</button>
           <button id="disconnect" class="button button--ghost" type="button">Leave</button>
         </div>
@@ -181,6 +183,50 @@
           <button id="conflict-force" class="button button--primary" type="button">
             Overwrite with mine
           </button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Invite dialog for board owners (Tree ACL). -->
+    <dialog id="invite-dialog" class="dialog">
+      <div class="dialog__body">
+        <h2 class="dialog__title">Invite to board</h2>
+        <p class="dialog__lede">
+          Generate a stateless, signed invite link to share this board with other users.
+        </p>
+
+        <div class="field">
+          <span class="field__label">Permission level</span>
+          <div class="invite-roles">
+            <label class="invite-role-option">
+              <input type="radio" name="invite-role" value="read" checked />
+              <div class="invite-role-option__info">
+                <strong>Read-Only</strong>
+                <span>Can view cards, live presence, and activity feed</span>
+              </div>
+            </label>
+            <label class="invite-role-option">
+              <input type="radio" name="invite-role" value="write" />
+              <div class="invite-role-option__info">
+                <strong>Read &amp; Write</strong>
+                <span>Can create, edit, move, and delete cards</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div id="invite-result" class="field" hidden>
+          <span class="field__label">Shareable invite link</span>
+          <div class="invite-link-row">
+            <input id="invite-link-input" class="field__input field__input--mono" type="text" readonly />
+            <button id="invite-copy-btn" class="button button--primary" type="button">Copy</button>
+          </div>
+          <span id="invite-copy-feedback" class="invite-feedback" hidden>Copied to clipboard!</span>
+        </div>
+
+        <div class="dialog__actions">
+          <button id="invite-cancel" class="button button--ghost" type="button">Close</button>
+          <button id="invite-generate-btn" class="button button--primary" type="button">Generate Link</button>
         </div>
       </div>
     </dialog>

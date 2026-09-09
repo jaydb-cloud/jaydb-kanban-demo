@@ -21,7 +21,7 @@
  * documents whose ETag actually moved get re-read.
  */
 
-import { ConflictError, NotFoundError } from './jaydb.js';
+import { ConflictError, NotFoundError, AuthError } from './jaydb.js';
 
 /** A presence record older than this is treated as gone. */
 const PRESENCE_TTL_MS = 30_000;
@@ -67,12 +67,14 @@ export class BoardStore extends EventTarget {
    * @param {import('./jaydb.js').JayDB} db
    * @param {string} boardId  Board slug; becomes part of every key.
    * @param {{clientId: string, name: string}} identity
+   * @param {'own' | 'write' | 'read'} [role='own']
    */
-  constructor(db, boardId, identity) {
+  constructor(db, boardId, identity, role = 'own') {
     super();
     this.db = db;
     this.boardId = boardId;
     this.identity = identity;
+    this.role = role || 'own';
 
     /** @type {{name: string, columns: Array<{id: string, title: string}>} | null} */
     this.meta = null;
@@ -129,6 +131,14 @@ export class BoardStore extends EventTarget {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
+  canWrite() {
+    return this.role === 'own' || this.role === 'write';
+  }
+
+  canAdmin() {
+    return this.role === 'own';
+  }
+
   // --- Pattern 1 & 3: the board document ------------------------------------
 
   /**
@@ -143,6 +153,9 @@ export class BoardStore extends EventTarget {
     if (existing) {
       this.meta = existing.data;
       this.metaETag = existing.etag;
+      if (this.meta.ownerId && this.meta.ownerId === this.identity.clientId) {
+        this.role = 'own';
+      }
       this.#emit('meta');
       return { created: false };
     }
@@ -152,12 +165,14 @@ export class BoardStore extends EventTarget {
       columns: DEFAULT_COLUMNS,
       createdAt: new Date().toISOString(),
       createdBy: this.identity.name,
+      ownerId: this.identity.clientId,
     };
 
     try {
       const written = await this.db.put(this.metaKey, fresh, { createOnly: true });
       this.meta = fresh;
       this.metaETag = written.etag;
+      this.role = 'own';
       this.#emit('meta');
       return { created: true };
     } catch (error) {
@@ -176,6 +191,7 @@ export class BoardStore extends EventTarget {
    * and a lost race is reported rather than papered over.
    */
   async renameColumn(columnId, title) {
+    if (!this.canWrite()) throw new AuthError('Read-only: cannot rename columns');
     const next = structuredClone(this.meta);
     const column = next.columns.find((c) => c.id === columnId);
     if (!column) throw new Error(`no such column: ${columnId}`);
@@ -190,6 +206,7 @@ export class BoardStore extends EventTarget {
   // --- Pattern 2: one document per card -------------------------------------
 
   async createCard({ column, title }) {
+    if (!this.canWrite()) throw new AuthError('Read-only: cannot create cards');
     const id = newId('card');
     const data = {
       id,
@@ -212,6 +229,7 @@ export class BoardStore extends EventTarget {
   }
 
   async deleteCard(id) {
+    if (!this.canWrite()) throw new AuthError('Read-only: cannot delete cards');
     const record = this.cards.get(id);
     if (!record) return;
 
@@ -247,6 +265,7 @@ export class BoardStore extends EventTarget {
    * between "handling a conflict" and "ignoring a conflict".
    */
   async moveCard(id, { column, order }) {
+    if (!this.canWrite()) throw new AuthError('Read-only: cannot move cards');
     return this.#mutateCard(id, (data) => ({ ...data, column, order }), {
       description: 'move',
     });
@@ -260,6 +279,7 @@ export class BoardStore extends EventTarget {
    * `moveCard`: same primitive, different policy, because the intent differs.
    */
   async editCard(id, { title, notes }) {
+    if (!this.canWrite()) throw new AuthError('Read-only: cannot edit cards');
     const record = this.cards.get(id) ?? (await this.#fetchCard(id));
     if (!record) throw new NotFoundError('card no longer exists', { key: this.cardKey(id) });
 
@@ -294,6 +314,7 @@ export class BoardStore extends EventTarget {
 
   /** Resolve an edit conflict by overwriting with the local version. */
   async forceCard(id, data) {
+    if (!this.canWrite()) throw new AuthError('Read-only: cannot edit cards');
     const record = this.cards.get(id) ?? (await this.#fetchCard(id));
     const written = await this.db.put(
       this.cardKey(id),
