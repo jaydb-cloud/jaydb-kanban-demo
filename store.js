@@ -64,7 +64,7 @@ async function mapLimit(items, limit, worker) {
 
 export class BoardStore extends EventTarget {
   /**
-   * @param {import('./jaydb.js').JayDB} db
+   * @param {import('./jaydb-cloud-sdk.js').JayDB} db
    * @param {string} boardId  Board slug; becomes part of every key.
    * @param {{clientId: string, name: string}} identity
    * @param {'own' | 'write' | 'read'} [role='own']
