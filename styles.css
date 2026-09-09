@@ -196,7 +196,7 @@ body {
 
 .connect__card {
   width: 100%;
-  max-width: 460px;
+  max-width: 480px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -208,6 +208,42 @@ body {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
+.connect__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: -4px;
+}
+
+.connect__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.connect__github {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.connect__github:hover {
+  color: var(--text-primary);
+}
+
 .connect__title {
   font-size: 22px;
   font-weight: 700;
@@ -217,6 +253,55 @@ body {
 .connect__lede {
   color: var(--text-secondary);
   margin-top: -8px;
+}
+
+.connect__features {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.connect__feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.connect__feature-item strong {
+  color: var(--text-primary);
+}
+
+.connect__feature-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: -1px;
+}
+
+.connect__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.connect__link {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.connect__link:hover {
+  color: var(--accent-primary);
 }
 
 .connect__error {
@@ -404,14 +489,51 @@ body {
 
 .topbar__identity {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+
+.topbar__logo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-primary);
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+
+.topbar__logo:hover {
+  filter: brightness(1.15);
+}
+
+.topbar__divider {
+  color: var(--border-color);
+  font-size: 14px;
+}
+
+.topbar__app {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .topbar__title {
   font-size: 17px;
   font-weight: 700;
+}
+
+.topbar__github {
+  text-decoration: none;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .topbar__key {
@@ -865,4 +987,104 @@ body {
   .diff {
     grid-template-columns: 1fr;
   }
+}
+
+/* --- Tree ACL & Role Badges --------------------------------------------- */
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.role-badge--own {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.role-badge--write {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.role-badge--read {
+  background: rgba(156, 163, 175, 0.15);
+  color: #d1d5db;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.invite-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.invite-role-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.invite-role-option:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-card-hover);
+}
+
+.invite-role-option input[type="radio"] {
+  margin-top: 3px;
+}
+
+.invite-role-option__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.invite-role-option__info strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.invite-role-option__info span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.invite-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.field__input--mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.invite-feedback {
+  font-size: 12px;
+  color: var(--success);
+  margin-top: 4px;
+}
+
+.card--readonly {
+  cursor: pointer;
+}
+
+.column__title--readonly {
+  cursor: default !important;
 }
