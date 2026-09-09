@@ -11,11 +11,12 @@
  *     pass, because a poll interval is too long to wait on before redrawing.
  */
 
-import { JayDB, AuthError, JayDBError } from './jaydb.js';
-import { BoardStore, newId, PRESENCE_TTL_MS } from './store.js';
-import { CONFIG } from './config.js';
-import { signBoardInvite, verifyBoardInvite } from './treeacl.js';
 import {
+  JayDB,
+  AuthError,
+  JayDBError,
+  signBoardInvite,
+  verifyBoardInvite,
   beginLogin as pkceBeginLogin,
   completeLoginIfCallback as pkceCompleteCallback,
   isSignedIn as pkceSignedIn,
@@ -23,7 +24,9 @@ import {
   ensureToken as pkceEnsureToken,
   currentToken as pkceCurrentToken,
   signOut as pkceSignOut,
-} from './pkce.js';
+} from './jaydb-cloud-sdk.js';
+import { BoardStore, newId, PRESENCE_TTL_MS } from './store.js';
+import { CONFIG } from './config.js';
 
 const SETTINGS_KEY = 'jaydb_kanban_settings';
 const CLIENT_ID_KEY = 'jaydb_kanban_client_id';

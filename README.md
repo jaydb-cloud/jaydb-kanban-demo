@@ -21,11 +21,12 @@ Built on **[JayDB Cloud](https://jaydb.com)**, this demo shows how simple it is 
 
 ## How It Works
 
-The browser communicates directly with JayDB Cloud using standard `fetch`:
+The browser communicates directly with JayDB Cloud using the official **[JayDB Cloud Frontend SDK](https://github.com/avivklas/jaydb-cloud-sdk)** (`jaydb-cloud-sdk.js`):
 
-1. **Sign In**: User signs in with Google or GitHub (PKCE). JayDB issues a scoped access token.
-2. **Direct Storage**: The browser reads and updates cards with standard HTTP requests (`GET` and `PUT`).
+1. **Sign In**: User signs in with Google or GitHub (PKCE via `Auth`). JayDB Cloud issues a scoped access token without client secrets.
+2. **Direct Storage**: The browser reads and updates cards with optimistic concurrency control (`db.get` and `db.put` with `ifMatch` ETags via `JayDB`).
 3. **Sync & Presence**: The client polls for card changes and sends heartbeats to show who's active.
+4. **Stateless Collaboration**: Share board invites with cryptographically signed tokens via `TreeACL`.
 
 ---
 
