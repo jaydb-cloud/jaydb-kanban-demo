@@ -53,6 +53,7 @@ const els = {
   presence: $('presence'),
   syncPill: $('sync-pill'),
   banner: $('banner'),
+  columnTabs: $('column-tabs'),
   columns: $('columns'),
   openInvite: $('open-invite'),
   toggleStats: $('toggle-stats') || $('toggle-inspector'),
@@ -75,6 +76,7 @@ const els = {
   cardForm: $('card-form'),
   cardTitle: $('card-title'),
   cardNotes: $('card-notes'),
+  cardColumn: $('card-column'),
   cardMeta: $('card-meta'),
   cardDelete: $('card-delete'),
   cardCancel: $('card-cancel'),
@@ -244,8 +246,11 @@ function renderBoard() {
 
   const canWrite = store.canWrite();
 
+  // Render mobile column tabs
+  renderColumnTabs(columns);
+
   els.columns.innerHTML = columns
-    .map((column) => {
+    .map((column, colIdx) => {
       const cards = store.cardsIn(column.id);
       return `
         <section class="column" data-column="${escapeHtml(column.id)}">
@@ -256,7 +261,7 @@ function renderBoard() {
             <span class="column__count">${cards.length}</span>
           </header>
           <div class="column__drop" data-drop="${escapeHtml(column.id)}">
-            ${cards.map((c) => renderCard(c, canWrite)).join('')}
+            ${cards.map((c) => renderCard(c, canWrite, colIdx, columns.length)).join('')}
           </div>
           ${canWrite ? `
           <button class="column__add" type="button" data-add="${escapeHtml(column.id)}">
@@ -267,17 +272,89 @@ function renderBoard() {
     .join('');
 }
 
-function renderCard(record, canWrite = true) {
+let activeColumnId = null;
+
+function renderColumnTabs(columns) {
+  if (!els.columnTabs) return;
+  if (!columns.length) {
+    els.columnTabs.hidden = true;
+    return;
+  }
+  els.columnTabs.hidden = false;
+
+  if (!activeColumnId || !columns.some((c) => c.id === activeColumnId)) {
+    activeColumnId = columns[0]?.id;
+  }
+
+  els.columnTabs.innerHTML = columns
+    .map((col) => {
+      const count = store.cardsIn(col.id).length;
+      const isActive = col.id === activeColumnId;
+      return `
+        <button
+          type="button"
+          class="column-tab${isActive ? ' column-tab--active' : ''}"
+          data-tab-column="${escapeHtml(col.id)}"
+          aria-selected="${isActive}"
+        >
+          <span class="column-tab__title">${escapeHtml(col.title)}</span>
+          <span class="column-tab__count">${count}</span>
+        </button>`;
+    })
+    .join('');
+}
+
+function updateActiveTab() {
+  if (!els.columnTabs) return;
+  const tabs = els.columnTabs.querySelectorAll('[data-tab-column]');
+  tabs.forEach((tab) => {
+    const isActive = tab.dataset.tabColumn === activeColumnId;
+    tab.classList.toggle('column-tab--active', isActive);
+    tab.setAttribute('aria-selected', String(isActive));
+    if (isActive) {
+      tab.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+    }
+  });
+}
+
+function renderCard(record, canWrite = true, columnIndex = 0, totalColumns = 1) {
   const { id, data, etag } = record;
+  const showMoveButtons = canWrite && totalColumns > 1;
+  const canMovePrev = showMoveButtons && columnIndex > 0;
+  const canMoveNext = showMoveButtons && columnIndex < totalColumns - 1;
+
   return `
     <article class="card${canWrite ? '' : ' card--readonly'}" draggable="${canWrite}" data-card="${escapeHtml(id)}">
       <h3 class="card__title">${escapeHtml(data.title)}</h3>
       ${data.notes ? `<p class="card__notes">${escapeHtml(data.notes)}</p>` : ''}
       <footer class="card__footer">
-        <span class="card__author">${escapeHtml(data.updatedBy ?? data.createdBy ?? '')}</span>
-        <span class="card__etag" title="ETag — the version this write must match">
-          ${escapeHtml((etag ?? '').slice(0, 8))}
-        </span>
+        <div class="card__meta-group">
+          <span class="card__author">${escapeHtml(data.updatedBy ?? data.createdBy ?? '')}</span>
+          <span class="card__etag" title="ETag — the version this write must match">
+            ${escapeHtml((etag ?? '').slice(0, 8))}
+          </span>
+        </div>
+        ${showMoveButtons ? `
+        <div class="card__move-actions" aria-label="Move card">
+          <button
+            type="button"
+            class="card__move-btn card__move-btn--prev"
+            data-move-card="${escapeHtml(id)}"
+            data-move-dir="-1"
+            title="Move to previous column"
+            aria-label="Move card left"
+            ${canMovePrev ? '' : 'disabled'}
+          >←</button>
+          <button
+            type="button"
+            class="card__move-btn card__move-btn--next"
+            data-move-card="${escapeHtml(id)}"
+            data-move-dir="1"
+            title="Move to next column"
+            aria-label="Move card right"
+            ${canMoveNext ? '' : 'disabled'}
+          >→</button>
+        </div>` : ''}
       </footer>
     </article>`;
 }
@@ -340,6 +417,15 @@ function renderStats() {
 // --- Interaction ----------------------------------------------------------
 
 els.columns.addEventListener('click', async (event) => {
+  const moveBtn = event.target.closest('[data-move-dir]');
+  if (moveBtn) {
+    event.stopPropagation();
+    const cardId = moveBtn.dataset.moveCard;
+    const dir = parseInt(moveBtn.dataset.moveDir, 10);
+    await quickMoveCard(cardId, dir);
+    return;
+  }
+
   const addButton = event.target.closest('[data-add]');
   if (addButton) return addCard(addButton.dataset.add);
 
@@ -349,6 +435,89 @@ els.columns.addEventListener('click', async (event) => {
   const cardEl = event.target.closest('[data-card]');
   if (cardEl) return openCard(cardEl.dataset.card);
 });
+
+async function quickMoveCard(id, dir) {
+  if (!store?.canWrite()) return;
+  const record = store.cards.get(id);
+  if (!record) return;
+
+  const columns = store.meta?.columns ?? [];
+  const currentIdx = columns.findIndex((c) => c.id === record.data.column);
+  if (currentIdx === -1) return;
+
+  const targetIdx = currentIdx + dir;
+  if (targetIdx < 0 || targetIdx >= columns.length) return;
+
+  const targetCol = columns[targetIdx].id;
+  const targetCards = store.cardsIn(targetCol);
+  const order = targetCards.length
+    ? Math.max(...targetCards.map((c) => c.data.order ?? 0)) + 1000
+    : 1000;
+
+  // Optimistic update
+  record.data = { ...record.data, column: targetCol, order };
+  renderBoard();
+
+  try {
+    const result = await store.moveCard(id, { column: targetCol, order });
+    if (result?.attempts > 1) {
+      showBanner(
+        `Move retried ${result.attempts - 1}× — someone else was editing that card. Applied cleanly.`,
+        'info',
+      );
+      setTimeout(hideBanner, 4000);
+    }
+    renderStats();
+  } catch (error) {
+    await store.sync();
+    renderBoard();
+    reportError(error);
+  }
+}
+
+// Mobile column tabs interaction
+els.columnTabs?.addEventListener('click', (event) => {
+  const tab = event.target.closest('[data-tab-column]');
+  if (!tab) return;
+  const colId = tab.dataset.tabColumn;
+  activeColumnId = colId;
+  updateActiveTab();
+  const colEl = els.columns.querySelector(`[data-column="${colId}"]`);
+  if (colEl) {
+    colEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
+});
+
+let scrollTimeout = null;
+els.columns.addEventListener(
+  'scroll',
+  () => {
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      if (window.innerWidth > 768) return;
+      const colEls = [...els.columns.querySelectorAll('[data-column]')];
+      if (!colEls.length) return;
+      const containerRect = els.columns.getBoundingClientRect();
+      const containerCenter = containerRect.left + containerRect.width / 2;
+      let closestCol = null;
+      let closestDist = Infinity;
+      for (const col of colEls) {
+        const rect = col.getBoundingClientRect();
+        const colCenter = rect.left + rect.width / 2;
+        const dist = Math.abs(containerCenter - colCenter);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestCol = col;
+        }
+      }
+      if (closestCol && closestCol.dataset.column !== activeColumnId) {
+        activeColumnId = closestCol.dataset.column;
+        updateActiveTab();
+      }
+    }, 60);
+  },
+  { passive: true },
+);
 
 async function addCard(column) {
   if (!store?.canWrite()) {
@@ -399,6 +568,18 @@ function openCard(id) {
   els.cardTitle.readOnly = !canWrite;
   els.cardNotes.value = record.data.notes ?? '';
   els.cardNotes.readOnly = !canWrite;
+
+  if (els.cardColumn) {
+    const columns = store.meta?.columns ?? [];
+    els.cardColumn.innerHTML = columns
+      .map(
+        (c) =>
+          `<option value="${escapeHtml(c.id)}"${c.id === record.data.column ? ' selected' : ''}>${escapeHtml(c.title)}</option>`,
+      )
+      .join('');
+    els.cardColumn.disabled = !canWrite;
+  }
+
   els.cardMeta.textContent =
     `${store.cardKey(id)} · ETag ${record.etag?.slice(0, 12) ?? '?'} · ` +
     `last touched by ${record.data.updatedBy ?? 'unknown'} ${relativeTime(record.data.updatedAt)}`;
@@ -416,8 +597,19 @@ els.cardForm.addEventListener('submit', async (event) => {
   const id = editingCardId;
   if (!id) return;
 
+  const record = store.cards.get(id);
+  const originalColumn = record?.data?.column;
+  const newColumn = els.cardColumn ? els.cardColumn.value : originalColumn;
+
   els.cardDialog.close();
   try {
+    if (newColumn && newColumn !== originalColumn) {
+      const targetCards = store.cardsIn(newColumn);
+      const order = targetCards.length
+        ? Math.max(...targetCards.map((c) => c.data.order ?? 0)) + 1000
+        : 1000;
+      await store.moveCard(id, { column: newColumn, order });
+    }
     await store.editCard(id, { title: els.cardTitle.value, notes: els.cardNotes.value });
     renderBoard();
     renderStats();
@@ -625,6 +817,7 @@ els.disconnect.addEventListener('click', async () => {
   pkceSignOut();
   hideLoader();
   resetSigninButtons();
+  activeColumnId = null;
   els.boardView.hidden = true;
   els.connect.hidden = false;
 });
